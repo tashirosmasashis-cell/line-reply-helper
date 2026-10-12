@@ -1,0 +1,60 @@
+/* 横の窓と設定の画面の見た目（LINE の緑を差し色に、落ち着いた白地） */
+:root {
+  --bg: #f6f7f8; --surface: #fff; --ink: #1f2328; --sub: #646b73; --line: #e2e5e9;
+  --green: #06c755; --green-deep: #04a547; --warn: #a15c00; --warn-bg: #fff4e0; --error: #b42318; --error-bg: #fdecea; --ok-bg: #e8f8ee;
+  --r: 12px; --font: system-ui, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #15181c; --surface: #1e2227; --ink: #e8eaed; --sub: #a0a7b0; --line: #2f353c; --warn-bg: #3a2c12; --error-bg: #3a1a17; --ok-bg: #14301f; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.65 var(--font); }
+.panel { padding: 14px 14px 28px; }
+.top { margin-bottom: 10px; }
+.who { margin: 0; font-weight: 700; font-size: 15px; }
+.sub { margin: 2px 0 0; color: var(--sub); font-size: 12.5px; }
+.card { background: var(--surface); border-radius: var(--r); padding: 14px; margin-top: 12px; box-shadow: 0 0 0 1px var(--line); }
+.card--best { box-shadow: 0 0 0 2px var(--green); }
+.h { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--green-deep); letter-spacing: .04em; }
+.label { display: block; font-weight: 700; font-size: 13px; margin-bottom: 6px; }
+textarea, input[type=text], input[type=password], select {
+  width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 9px 10px; background: var(--surface); color: var(--ink); font: inherit; resize: vertical;
+}
+textarea:focus, input:focus, select:focus { outline: 2px solid var(--green); outline-offset: 1px; border-color: transparent; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.row--tight { flex-wrap: nowrap; margin-top: 0; }
+.row--tight input { flex: 1; }
+.btn { min-height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: 700 13px var(--font); cursor: pointer; white-space: nowrap; }
+.btn:hover { border-color: var(--green); }
+.btn--main { background: var(--green); border-color: var(--green); color: #fff; }
+.btn--main:hover { background: var(--green-deep); }
+.btn:disabled { opacity: .55; cursor: progress; }
+.hint { margin: 8px 0 0; color: var(--sub); font-size: 12px; }
+.memo { margin-top: 10px; }
+.memo summary { cursor: pointer; font-size: 12.5px; color: var(--sub); }
+.memo textarea { margin-top: 6px; }
+.points { margin: 0; padding-left: 1.2em; }
+.points li { margin: 2px 0; }
+.noreply { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--ok-bg); font-size: 13px; }
+.check { margin: 8px 0 0; padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); color: var(--warn); font-size: 12.5px; font-weight: 700; }
+.status { margin: 12px 0 0; font-size: 13px; }
+.status:empty { display: none; }
+.status[data-tone=warn] { padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); color: var(--warn); }
+.status[data-tone=error] { padding: 8px 10px; border-radius: 8px; background: var(--error-bg); color: var(--error); }
+.status[data-tone=ok] { padding: 8px 10px; border-radius: 8px; background: var(--ok-bg); }
+.notice { margin: 0 0 10px; padding: 8px 10px; border-radius: 8px; background: var(--warn-bg); font-size: 12.5px; }
+.foot { margin-top: 18px; display: grid; gap: 4px; font-size: 12px; color: var(--sub); }
+.foot a { color: var(--green-deep); font-weight: 700; }
+
+/* 設定の画面 */
+.page { max-width: 720px; margin: 0 auto; padding: 28px 18px 60px; }
+.page h1 { font-size: 22px; margin: 0 0 4px; }
+.page .lead { color: var(--sub); margin: 0 0 18px; }
+.choice { display: grid; gap: 8px; }
+.choice label { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; box-shadow: 0 0 0 1px var(--line); background: var(--surface); cursor: pointer; }
+.choice input { margin-top: 4px; accent-color: var(--green); }
+.choice small { display: block; color: var(--sub); }
+.field { margin-top: 12px; }
+.memos { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.memos li { display: grid; grid-template-columns: 8em 1fr auto; gap: 8px; align-items: center; }
+.choice label:has(input:checked) { box-shadow: 0 0 0 2px var(--green); }

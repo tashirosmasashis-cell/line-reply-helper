@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LINE返信サポート</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body class="panel">
+  <header class="top">
+    <p class="who" id="who">会話を開いて「返信を考える」を押してください</p>
+    <p class="sub" id="sub"></p>
+  </header>
+
+  <p class="notice" id="version" hidden></p>
+
+  <section class="card">
+    <label class="label" for="intent">伝えたいこと（なくても大丈夫）</label>
+    <textarea id="intent" rows="2" placeholder="例：駐車場は2台まで無料と伝えたい／来週の打ち合わせを断りたい"></textarea>
+    <details class="memo">
+      <summary>この人のメモ</summary>
+      <textarea id="memo" rows="2" placeholder="例：お客さま・HP を作っている・丁寧に"></textarea>
+      <p class="hint">メモはこのパソコンの中だけに置きます。</p>
+    </details>
+    <div class="row">
+      <button class="btn btn--main" id="think" type="button">返信を考える</button>
+      <button class="btn" id="copy" type="button">AI に貼る形でコピー</button>
+    </div>
+    <p class="hint" id="aiNote"></p>
+  </section>
+
+  <p class="status" id="status" role="status" aria-live="polite"></p>
+
+  <section id="result" hidden>
+    <div class="card" id="pointsCard">
+      <h2 class="h">返すこと</h2>
+      <ul class="points" id="points"></ul>
+      <p class="noreply" id="noreply" hidden></p>
+    </div>
+    <div class="card card--best">
+      <h2 class="h">いちばん合う返信</h2>
+      <textarea id="best" rows="8"></textarea>
+      <p class="check" id="bestCheck" hidden></p>
+      <div class="row">
+        <button class="btn btn--main" data-insert="best" type="button">入力欄に入れる</button>
+        <button class="btn" data-copy="best" type="button">コピー</button>
+      </div>
+    </div>
+    <div id="alts"></div>
+    <div class="card">
+      <label class="label" for="refine">ひとこと足して作り直す</label>
+      <div class="row row--tight">
+        <input id="refine" type="text" placeholder="例：もう少し短く／お礼を先に">
+        <button class="btn" id="redo" type="button">作り直す</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="photos" hidden>
+    <p class="hint" id="photoNote"></p>
+    <button class="btn" id="savePhotos" type="button">写真も保存</button>
+  </section>
+
+  <footer class="foot">
+    <a href="options.html" target="_blank">設定（AI の選び方・自分の立場）</a>
+    <span>送信は自分で押します。この道具は勝手に送りません。</span>
+  </footer>
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+# 調査の記録・本物の会話は入れない
+line-reply-helper-record-*.json
+records/
+node_modules/

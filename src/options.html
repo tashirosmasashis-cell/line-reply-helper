@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LINE返信サポートの設定</title>
+  <link rel="stylesheet" href="ui.css">
+</head>
+<body>
+  <main class="page">
+    <h1>LINE返信サポートの設定</h1>
+    <p class="lead">返信の案を考える AI と、あなたの立場・口調を決めます。ここで入れた物は、このパソコンの Chrome の中だけに置かれます。</p>
+
+    <section class="card">
+      <h2 class="h">考える AI</h2>
+      <div class="choice" id="providers">
+        <label><input type="radio" name="provider" value="none"><span><b>鍵なし（AI に貼る形でコピーだけ）</b><small>ChatGPT・Claude・Gemini などの画面に自分で貼ります。会話はどこにも送られません（貼った先の AI を除く）。</small></span></label>
+        <label><input type="radio" name="provider" value="gemini"><span><b>Gemini（Google）</b><small>無料の鍵が取れます（Google AI Studio）。⚠ 無料の鍵で送った文は、Google のサービスの改善に使われることがあります。1つの鍵で1日に使える回数は少なめです。</small></span></label>
+        <label><input type="radio" name="provider" value="openai"><span><b>ChatGPT（OpenAI）</b><small>有料の鍵が要ります（使った分だけ OpenAI に支払い）。</small></span></label>
+        <label><input type="radio" name="provider" value="claude"><span><b>Claude（Anthropic）</b><small>有料の鍵が要ります（使った分だけ Anthropic に支払い）。</small></span></label>
+      </div>
+      <div class="field" id="keyField" hidden>
+        <label class="label" for="key">鍵（API キー）</label>
+        <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="ここに貼る">
+        <p class="hint" id="keyHelp"></p>
+        <label class="label field" for="model">モデル（わからなければそのまま）</label>
+        <input id="model" type="text" spellcheck="false">
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="h">あなたの立場・口調（なくても大丈夫）</h2>
+      <textarea id="myRole" rows="3" placeholder="例：子ども向け教室の受付。やわらかい敬語で、絵文字は1つまで。"></textarea>
+      <p class="hint">書かなくても、会話の中のあなたの過去の返信から口調をまねます。</p>
+    </section>
+
+    <section class="card">
+      <h2 class="h">相手ごとのメモ</h2>
+      <ul class="memos" id="memos"></ul>
+      <p class="hint" id="noMemo">まだありません。横の窓の「この人のメモ」に書くと、ここに並びます。</p>
+    </section>
+
+    <div class="row">
+      <button class="btn btn--main" id="save" type="button">保存する</button>
+    </div>
+    <p class="status" id="status" role="status" aria-live="polite"></p>
+  </main>
+  <script type="module" src="options.js"></script>
+</body>
+</html>
