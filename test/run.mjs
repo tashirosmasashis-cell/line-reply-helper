@@ -3,7 +3,8 @@ import { tidy, unanswered, format, stamp } from '../src/lib/thread.js';
 import { buildPrompt } from '../src/lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from '../src/lib/parse.js';
 import { ask, AiError } from '../src/lib/providers.js';
-import { piled, weLast, shop } from './fixtures.mjs';
+import { piled, weLast, shop, apiMessages, apiChats, BOT, CHAT } from './fixtures.mjs';
+import { parsePath, toMessages, chatInfo, imageUrl } from '../src/lib/linechat.js';
 
 let ng = 0;
 const t = (name, ok, got) => { console.log((ok ? '✅ ' : '❌ ') + name + (ok ? '' : '  → ' + JSON.stringify(got).slice(0, 300))); if (!ok) ng++; };
@@ -63,6 +64,22 @@ const spy = async (url, init) => { sent = { url, init }; return new Response(JSO
 await ask('gemini', { key: 'SECRET', prompt: 'p', images: [{ mime: 'image/jpeg', base64: 'AAA' }] }, spy, nowait);
 t('鍵は住所に入れず、見出しで送る', !sent.url.includes('SECRET') && sent.init.headers['x-goog-api-key'] === 'SECRET');
 t('写真を付けて送る', JSON.parse(sent.init.body).contents[0].parts[1].inline_data.data === 'AAA');
+
+// ---- 管理画面の内部の口の答えをそろえる
+t('住所から公式アカウントと会話の番号を取る', JSON.stringify(parsePath('/' + BOT + '/chat/' + CHAT)) === JSON.stringify({ botId: BOT, chatId: CHAT }));
+t('会話を開いていない住所は読まない', parsePath('/' + BOT + '/chat') === null);
+const lm = toMessages(apiMessages.list, { botId: BOT, them: '山田 花子', us: 'はなまる教室' });
+t('既読の印は外し、発言だけ（6件）', lm.length === 6, lm.map((x) => x.id));
+t('相手から＝them・こちらから＝us', lm[0].side === 'them' && lm[3].side === 'us');
+t('写真は管理画面と同じ住所', lm[1].imageUrl === imageUrl(BOT, 'abc+/def==') && lm[1].imageUrl.endsWith('/abc%2B%2Fdef==/preview'), lm[1].imageUrl);
+t('期限切れの写真は住所なし', lm[2].kind === 'image' && !lm[2].imageUrl);
+t('スタンプはスタンプ', lm[4].kind === 'sticker');
+t('位置情報は文にする', lm[5].kind === 'text' && lm[5].text.includes('駅'));
+t('時刻はミリ秒から', lm[0].at === new Date('2026-10-11T09:01:00+09:00').toISOString());
+t('相手の名前を一覧から取る', chatInfo(apiChats.list, CHAT).them === '山田 花子' && !chatInfo(apiChats.list, CHAT).isGroup);
+t('グループはグループ', chatInfo(apiChats.list, 'C' + '3'.repeat(32)).isGroup === true);
+t('一覧に無ければ名前は空', chatInfo(apiChats.list, 'x').them === null);
+t('そろえた会話で「まだ返していない分」', unanswered(tidy(lm)).length === 1 && unanswered(tidy(lm))[0].id === '106');
 
 console.log(ng ? `\n❌ ${ng}件 失敗` : '\n合格');
 process.exit(ng ? 1 : 0);

@@ -4,19 +4,60 @@
   "version": "0.1.0",
   "description": "LINE 公式アカウントの管理画面で、これまでの会話をまるごと読み、まだ返していない相手のメッセージに漏れなく応える返信の案を作ります。送信は自分で押します。",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "sidePanel", "downloads", "alarms"],
-  "host_permissions": ["https://chat.line.biz/*", "https://api.github.com/*"],
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "downloads",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://chat.line.biz/*",
+    "https://chat-content.line.biz/*",
+    "https://api.github.com/*"
+  ],
   "optional_host_permissions": [
     "https://generativelanguage.googleapis.com/*",
     "https://api.openai.com/*",
     "https://api.anthropic.com/*"
   ],
-  "background": { "service_worker": "src/background.js", "type": "module" },
-  "side_panel": { "default_path": "src/sidepanel.html" },
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel.html"
+  },
   "options_page": "src/options.html",
-  "action": { "default_title": "LINE返信サポート" },
+  "action": {
+    "default_title": "LINE返信サポート"
+  },
   "content_scripts": [
-    { "matches": ["https://chat.line.biz/*"], "js": ["src/content.js"], "css": ["src/content.css"], "run_at": "document_idle" }
+    {
+      "matches": [
+        "https://chat.line.biz/*"
+      ],
+      "js": [
+        "src/content.js"
+      ],
+      "css": [
+        "src/content.css"
+      ],
+      "run_at": "document_idle"
+    }
   ],
-  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" }
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/lib/linechat.js"
+      ],
+      "matches": [
+        "https://chat.line.biz/*"
+      ]
+    }
+  ]
 }

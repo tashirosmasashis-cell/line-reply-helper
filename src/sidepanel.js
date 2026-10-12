@@ -57,6 +57,22 @@ async function prompt(mode, extra = '') {
   return buildPrompt({ messages: convo.messages, them: convo.them, us: convo.us, intent, myRole: s.myRole, memo: $('memo').value, mode });
 }
 
+// ---------- 写真の中身（管理画面と同じログインで、最新の4枚まで）。取れない写真は飛ばす＝「写真が届いた」とだけ伝わる
+async function photos(urls) {
+  const out = [];
+  for (const url of urls.slice(-4)) {
+    try {
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      if (!blob.type.startsWith('image/') || blob.size > 4_000_000) continue;
+      const base64 = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(String(fr.result).split(',')[1]); fr.readAsDataURL(blob); });
+      out.push({ mime: blob.type, base64 });
+    } catch { /* 飛ばす */ }
+  }
+  return out;
+}
+
 // ---------- ① その場で考えてもらう
 async function think(extra = '') {
   $('think').disabled = true;
@@ -70,10 +86,10 @@ async function think(extra = '') {
     }
     say(`${PROVIDERS[s.provider].name.split('（')[0]} が考えています…`);
     const urls = convo.messages.filter((m) => m.kind === 'image' && m.imageUrl).map((m) => m.imageUrl);
-    const imgs = urls.length ? ((await toPage({ type: 'images', urls }))?.images || []) : [];
+    const imgs = await photos(urls);
     const text = await prompt('json', extra);
     const photoNote = imgs.length ? `相手から届いた写真のうち最新 ${imgs.length} 枚を添えます。写真の中身も踏まえてください。` : '';
-    const raw = await ask(s.provider, { key: s.keys[s.provider], model: s.models[s.provider], prompt: photoNote ? text.replace('\n\n会話：', `\n${photoNote}\n\n会話：`) : text, images: imgs.map(({ mime, base64 }) => ({ mime, base64 })) });
+    const raw = await ask(s.provider, { key: s.keys[s.provider], model: s.models[s.provider], prompt: photoNote ? text.replace('\n\n会話：', `\n${photoNote}\n\n会話：`) : text, images: imgs });
     const a = parseAnswer(raw);
     if (!a.ok) { say('AI の答えを読めませんでした。もう一度押してください。', 'error'); return; }
     show(a);
@@ -125,8 +141,11 @@ document.addEventListener('click', async (e) => {
   const ins = e.target.closest('[data-insert]');
   const cp = e.target.closest('[data-copy]');
   if (ins) {
-    const r = await toPage({ type: 'insert', text: $(ins.dataset.insert).value, chatKey: convo?.chatKey });
-    say(r?.ok ? '入力欄に入れました。読み直してから、送信は自分で押してください。' : r?.error || '入れられませんでした。', r?.ok ? 'ok' : 'error');
+    const text = $(ins.dataset.insert).value;
+    const r = await toPage({ type: 'insert', text, chatKey: convo?.chatKey });
+    if (r?.ok) say('入力欄に入れました。読み直してから、送信は自分で押してください。', 'ok');
+    else if (r?.copy) { await navigator.clipboard.writeText(text); say(`${r.error}代わりにコピーしたので、管理画面の入力欄に貼り付けてください（Ctrl + V）。`, 'warn'); }
+    else say(r?.error || '入れられませんでした。', 'error');
   }
   if (cp) { await navigator.clipboard.writeText($(cp.dataset.copy).value); say('コピーしました。', 'ok'); }
 });
