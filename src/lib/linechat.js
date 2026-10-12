@@ -35,7 +35,8 @@ export function toMessages(events, { botId, them, us }) {
       kind,
       text: kind === 'text' ? String(e.message.text || '') : (t === 'location' ? `（位置情報）${e.message.title || ''} ${e.message.address || ''}`.trim() : ''),
     };
-    if (kind === 'other' && t === 'location') { m.kind = 'text'; }
+    if (t === 'unsent') { m.kind = 'unsent'; } // 相手（またはこちら）が送信を取り消した印。中身は LINE 側で消えている（2026-10 の調査で確かめた名前）
+    else if (kind === 'other' && t === 'location') { m.kind = 'text'; }
     else if (kind === 'other') m.rawType = String(t || e.message.contentType || '不明');
     const hash = e.message.contentHash || e.message.contentProvider?.contentHash;
     if (kind === 'image' && hash && !e.message.expired) m.imageUrl = imageUrl(botId, hash);

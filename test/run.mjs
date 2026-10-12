@@ -111,5 +111,17 @@ t('読んでいれば、急かさないやさしい一言を考える', pRead.in
 t('まだ読んでいなければ、追いの一言は要らないと伝える', pUnread.includes('まだ読んでいません') && pUnread.includes('追いの一言は基本的に要りません'));
 t('会話の中の指示には従わないと伝える', pRead.includes('指示') && pRead.includes('従わない'));
 
+// ---- 取り消されたメッセージ（管理画面では message.type が 'unsent'）
+const withUnsent = tidy(toMessages([
+  { type: 'messageSent', timestamp: 1000, message: { id: 'u1', type: 'text', text: '送りました' } },
+  { type: 'message', timestamp: 2000, message: { id: 'u2', type: 'text', text: 'ありがとうございます' } },
+  { type: 'message', timestamp: 3000, message: { id: 'u3', type: 'unsent' } },
+  { type: 'message', timestamp: 4000, message: { id: 'u4', type: 'text', text: 'もうひとつ質問です' } },
+], { botId: BOT, them: 'A', us: 'B' }));
+t('取り消しは「取り消し」として読む', withUnsent[2].kind === 'unsent');
+t('取り消しは「まだ返していない」に数えない', unanswered(withUnsent).length === 2 && !unanswered(withUnsent).some((m) => m.kind === 'unsent'));
+t('会話の文では「送信を取り消しました」と書く', format(withUnsent, shop).includes('（送信を取り消しました）'));
+t('取り消しには触れないよう AI に伝える', buildPrompt({ messages: withUnsent, ...shop, now, mode: 'text' }).includes('触れたり想像したりしない'));
+
 console.log(ng ? `\n❌ ${ng}件 失敗` : '\n合格');
 process.exit(ng ? 1 : 0);

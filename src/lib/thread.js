@@ -5,7 +5,7 @@
 
 export const MAX_MESSAGES = 100; // AI に渡すのは最新のこれだけ（無料枠の上限と速さのため）
 
-const KIND_LABEL = { image: '（写真）', sticker: '（スタンプ）', file: '（ファイル）', audio: '（音声）', video: '（動画）', other: '（そのほかのメッセージ）' };
+const KIND_LABEL = { unsent: '（送信を取り消しました）', image: '（写真）', sticker: '（スタンプ）', file: '（ファイル）', audio: '（音声）', video: '（動画）', other: '（そのほかのメッセージ）' };
 
 /** 時刻順に並べ、空の物を外し、最新 MAX_MESSAGES 件にする */
 export function tidy(messages) {
@@ -17,11 +17,11 @@ export function tidy(messages) {
     .slice(-MAX_MESSAGES);
 }
 
-/** まだ返していない分＝こちら側の誰かの最後の返信より後の、相手の発言 */
+/** まだ返していない分＝こちら側の誰かの最後の返信より後の、相手の発言（取り消されたものは数えない） */
 export function unanswered(messages) {
   let last = -1;
-  messages.forEach((m, i) => { if (m.side === 'us') last = i; });
-  return messages.slice(last + 1).filter((m) => m.side === 'them');
+  messages.forEach((m, i) => { if (m.side === 'us' && m.kind !== 'unsent') last = i; });
+  return messages.slice(last + 1).filter((m) => m.side === 'them' && m.kind !== 'unsent');
 }
 
 /** 日本時間の「10/12 20:28」。日付が変わったら見出しを入れるのは format の側 */
