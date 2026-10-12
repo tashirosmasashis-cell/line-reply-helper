@@ -11,8 +11,8 @@ let last = null;       // 最後に作った案
 
 // ---------- 設定
 async function settings() {
-  const s = await chrome.storage.local.get(['provider', 'keys', 'models', 'myRole', 'memos']);
-  return { provider: s.provider || 'none', keys: s.keys || {}, models: s.models || {}, myRole: s.myRole || '', memos: s.memos || {} };
+  const s = await chrome.storage.local.get(['provider', 'keys', 'models', 'myRole', 'memos', 'showContacts']);
+  return { provider: s.provider || 'none', keys: s.keys || {}, models: s.models || {}, myRole: s.myRole || '', memos: s.memos || {}, showContacts: !!s.showContacts };
 }
 async function saveMemo(name, text) {
   const { memos = {} } = await chrome.storage.local.get('memos');
@@ -57,7 +57,7 @@ async function load() {
 async function prompt(mode, extra = '') {
   const s = await settings();
   const intent = [$('intent').value, extra].filter((x) => x && x.trim()).join('\n');
-  return buildPrompt({ messages: convo.messages, them: convo.them, us: convo.us, intent, myRole: s.myRole, memo: $('memo').value, mode });
+  return buildPrompt({ messages: convo.messages, them: convo.them, us: convo.us, intent, myRole: s.myRole, memo: $('memo').value, theyRead: convo.theyRead, hideContacts: !s.showContacts, mode });
 }
 
 // ---------- 写真の中身（管理画面と同じログインで、最新の4枚まで）。取れない写真は飛ばす＝「写真が届いた」とだけ伝わる
@@ -158,7 +158,8 @@ $('copy').addEventListener('click', () => copyForAi().catch((e) => say('コピ�
 $('best').addEventListener('input', () => markChecks($('best').value, $('bestCheck')));
 $('savePhotos').addEventListener('click', async () => {
   const urls = convo.messages.filter((m) => m.kind === 'image' && m.imageUrl);
-  const safe = convo.them.replace(/[\\/:*?"<>|]/g, '_');
+  // 保存するフォルダの名前に使えない文字・「..」で始まる名前は置き換える（相手の名前は相手が決められるため）
+  const safe = convo.them.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/^\.+/, '_').slice(0, 60) || '相手';
   for (const [i, m] of urls.entries()) {
     const d = new Date(m.at);
     const name = `LINE返信サポート/${safe}/${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}_写真${i + 1}.jpg`;
@@ -174,7 +175,18 @@ $('savePhotos').addEventListener('click', async () => {
     ? 'AI の鍵が入っていないので、いまは「AI に貼る形でコピー」で使えます。設定で鍵を入れると、ここで返信の案が出ます。'
     : `考える AI：${PROVIDERS[s.provider].name}`;
   const { versionInfo } = await chrome.storage.local.get('versionInfo');
-  if (versionInfo?.newer) { $('version').hidden = false; $('version').innerHTML = `新しい版（${versionInfo.latest}）があります。<a href="${versionInfo.url}" target="_blank">入れ直し方を見る</a>`; }
+  // 版の知らせは GitHub から来た文字なので、HTML として入れない（文字として入れ、リンク先は自分の GitHub に限る）
+  if (versionInfo?.newer) {
+    const v = $('version');
+    v.hidden = false;
+    v.textContent = `新しい版（${String(versionInfo.latest).slice(0, 20)}）があります。`;
+    const link = document.createElement('a');
+    link.href = 'https://github.com/tashirosmasashis-cell/line-reply-helper/releases/latest';
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = '入れ直し方を見る';
+    v.appendChild(link);
+  }
   await load();
 })();
 chrome.tabs.onActivated.addListener(() => load());

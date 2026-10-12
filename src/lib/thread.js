@@ -36,26 +36,35 @@ export function stamp(iso, tz = 'Asia/Tokyo') {
 // 「パス」のあとに区切り（空白・：・＝・は）があるときだけ伏せる（「パスタ」などは伏せない）
 const SECRET = /((?:パスワード|パス|ﾊﾟｽ|password|passwd|pass|pw|PIN|暗証番号)(?:\s*(?:は|:|：|=|＝)\s*|\s+))([^\s、。，,]{4,})/gi;
 const TOKEN = /\b(?:AIza[0-9A-Za-z_-]{30,}|sk-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,})\b/g;
-export function redact(text) {
-  return String(text).replace(SECRET, (_, head) => `${head}［伏せました］`).replace(TOKEN, '［鍵のような文字列を伏せました］');
+// メールアドレスと電話番号（返信を考えるのにほぼ要らない・既定で伏せる。設定で外せる）
+const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
+const PHONE = /(?:\+81[-\s]?|0)\d{1,4}[-\s(（]?\d{1,4}[-\s)）]?\d{3,4}/g;
+export function redact(text, { contacts = true } = {}) {
+  let s = String(text).replace(SECRET, (_, head) => `${head}［伏せました］`).replace(TOKEN, '［鍵のような文字列を伏せました］');
+  if (contacts) {
+    s = s.replace(EMAIL, '［メールアドレス］');
+    // 数字が 10〜11 けたのものだけ電話番号とみなす（日付や郵便番号は伏せない）
+    s = s.replace(PHONE, (m) => { const n = m.replace(/\D/g, '').replace(/^81/, '0'); return n.length >= 10 && n.length <= 11 ? '［電話番号］' : m; });
+  }
+  return s;
 }
 
 export function lineOf(m, names) {
   const who = m.side === 'us' ? `${names.us}${m.author && m.author !== names.us ? `（${m.author}）` : ''}` : (m.author || names.them);
   const label = m.kind === 'other' && m.rawType ? `（そのほかのメッセージ：${m.rawType}）` : (KIND_LABEL[m.kind] || KIND_LABEL.other);
   const body = m.kind === 'text' ? m.text.trim() : label + (m.text ? ' ' + m.text.trim() : '');
-  return `[${stamp(m.at).time}] ${who}：${redact(body)}`;
+  return `[${stamp(m.at).time}] ${who}：${redact(body, { contacts: names.hideContacts !== false })}`;
 }
 
 /** 会話を、日付の見出しつきの文にする。まだ返していない分には印を付ける */
-export function format(messages, { them = '相手', us = 'こちら' } = {}) {
+export function format(messages, { them = '相手', us = 'こちら', hideContacts = true } = {}) {
   const waiting = new Set(unanswered(messages).map((m) => m));
   const out = [];
   let day = '';
   for (const m of messages) {
     const s = stamp(m.at);
     if (s.date !== day) { day = s.date; out.push(`── ${day} ──`); }
-    out.push((waiting.has(m) ? '★ ' : '') + lineOf(m, { them, us }));
+    out.push((waiting.has(m) ? '★ ' : '') + lineOf(m, { them, us, hideContacts }));
   }
   return out.join('\n');
 }

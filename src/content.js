@@ -51,7 +51,7 @@
       const us = bot.name || 'こちら';
       const seen = new Set();
       const messages = toMessages(events, { botId: ids.botId, them, us }).filter((m) => (seen.has(m.id) ? false : seen.add(m.id)));
-      return { them, us, isGroup: info.isGroup, messages };
+      return { them, us, isGroup: info.isGroup, theyRead: info.theyRead, messages };
     },
     /** 入力欄を探す。管理画面の入力欄は独自の部品 <textarea-ex id="editor">（2026-10 の調査）。中に本物の入力欄があればそれを使う */
     input() {

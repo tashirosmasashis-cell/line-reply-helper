@@ -45,9 +45,15 @@ export function toMessages(events, { botId, them, us }) {
   return out;
 }
 
-/** 相手の名前（あなたが付けた呼び名があればそれ）と、グループかどうか */
+/** 相手の名前（あなたが付けた呼び名があればそれ）・グループかどうか・相手がこちらの最後の返信を読んだか
+ *  会話の一覧の userLastReadAt＝相手が最後に読んだ時刻、lastSentAt＝こちらが最後に送った時刻（2026-10 の調査で確かめた） */
 export function chatInfo(chatsList, chatId) {
   const c = (chatsList || []).find((x) => x && x.chatId === chatId);
-  if (!c) return { them: null, isGroup: false };
-  return { them: c.profile?.nickname || c.profile?.name || null, isGroup: !!c.chatType && c.chatType !== 'USER' };
+  if (!c) return { them: null, isGroup: false, theyRead: null };
+  const sent = Number(c.lastSentAt) || 0, read = Number(c.userLastReadAt) || 0;
+  return {
+    them: c.profile?.nickname || c.profile?.name || null,
+    isGroup: !!c.chatType && c.chatType !== 'USER',
+    theyRead: sent ? { read: read >= sent, at: read ? new Date(read).toISOString() : null } : null,
+  };
 }

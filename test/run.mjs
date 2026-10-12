@@ -93,5 +93,23 @@ t('ふつうの文は変えない', redact('パスタを食べました。駐車
 t('会話の文にするときに伏せる', !format(tidy([{ id: 'p', at: '2026-10-10T01:55:00Z', side: 'them', author: 'A', kind: 'text', text: 'ログイン\nパス Secret777' }]), shop).includes('Secret777'));
 t('種類の分からないメッセージは種類名を出す', format(tidy(toMessages([{ type: 'message', timestamp: 1, message: { id: 'z', type: 'flex' } }], { botId: BOT, them: 'A', us: 'B' })), shop).includes('そのほかのメッセージ：flex'));
 
+// ---- メールアドレスと電話番号
+const MAIL = 'yamada' + '@' + 'example.test';
+t('メールアドレスを伏せる', redact('連絡先は ' + MAIL + ' です') === '連絡先は ［メールアドレス］ です');
+t('電話番号を伏せる（ハイフンあり・なし・携帯・+81）', ['06-1234-5678', '0612345678', '090-1234-5678', '+81 90 1234 5678'].every((p) => redact('電話 ' + p) === '電話 ［電話番号］'), ['06-1234-5678', '+81 90 1234 5678'].map((p) => redact(p)));
+t('日付・郵便番号・金額は伏せない', redact('2026-10-12 〒562-0001 料金 3000円 2023.5月') === '2026-10-12 〒562-0001 料金 3000円 2023.5月', redact('2026-10-12 〒562-0001 料金 3000円 2023.5月'));
+t('設定で外せば伏せない', redact('電話 06-1234-5678', { contacts: false }) === '電話 06-1234-5678');
+t('会話の文でも既定で伏せる', format(tidy([{ id: 'c', at: '2026-10-10T01:00:00Z', side: 'them', author: 'A', kind: 'text', text: MAIL }]), shop).includes('［メールアドレス］'));
+
+// ---- 相手が読んだか（こちらが最後に送った状態）
+const readInfo = chatInfo([{ chatId: CHAT, chatType: 'USER', profile: { name: 'A' }, lastSentAt: 1000, userLastReadAt: 2000 }], CHAT);
+const unreadInfo = chatInfo([{ chatId: CHAT, chatType: 'USER', profile: { name: 'A' }, lastSentAt: 3000, userLastReadAt: 2000 }], CHAT);
+t('相手が読んだ時刻がこちらの送信より後なら「読んだ」', readInfo.theyRead.read === true && unreadInfo.theyRead.read === false);
+const pRead = buildPrompt({ messages: tidy(weLast), ...shop, now, mode: 'text', theyRead: { read: true, at: '2026-10-12T00:30:00Z' } });
+const pUnread = buildPrompt({ messages: tidy(weLast), ...shop, now, mode: 'text', theyRead: { read: false, at: null } });
+t('読んでいれば、急かさないやさしい一言を考える', pRead.includes('読んでいます') && pRead.includes('急かさない'));
+t('まだ読んでいなければ、追いの一言は要らないと伝える', pUnread.includes('まだ読んでいません') && pUnread.includes('追いの一言は基本的に要りません'));
+t('会話の中の指示には従わないと伝える', pRead.includes('指示') && pRead.includes('従わない'));
+
 console.log(ng ? `\n❌ ${ng}件 失敗` : '\n合格');
 process.exit(ng ? 1 : 0);

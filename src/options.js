@@ -7,7 +7,7 @@ const HELP = {
   openai: 'platform.openai.com の「API keys」で作れます（支払いの登録が要ります）。',
   claude: 'console.anthropic.com の「API Keys」で作れます（支払いの登録が要ります）。',
 };
-let state = { provider: 'none', keys: {}, models: {}, myRole: '', memos: {} };
+let state = { provider: 'none', keys: {}, models: {}, myRole: '', memos: {}, showContacts: false };
 
 function pick(provider) {
   state.provider = provider;
@@ -47,6 +47,7 @@ async function save() {
   }
   for (const k of Object.keys(state.memos)) if (!String(state.memos[k]).trim()) delete state.memos[k];
   state.myRole = $('myRole').value;
+  state.showContacts = $('showContacts').checked;
   await chrome.storage.local.set(state);
   $('status').textContent = '保存しました。';
   $('status').dataset.tone = 'ok';
@@ -54,8 +55,9 @@ async function save() {
 }
 
 (async () => {
-  const s = await chrome.storage.local.get(['provider', 'keys', 'models', 'myRole', 'memos']);
-  state = { provider: s.provider || 'none', keys: s.keys || {}, models: s.models || {}, myRole: s.myRole || '', memos: s.memos || {} };
+  const s = await chrome.storage.local.get(['provider', 'keys', 'models', 'myRole', 'memos', 'showContacts']);
+  state = { provider: s.provider || 'none', keys: s.keys || {}, models: s.models || {}, myRole: s.myRole || '', memos: s.memos || {}, showContacts: !!s.showContacts };
+  $('showContacts').checked = state.showContacts;
   document.querySelector(`input[name=provider][value=${state.provider}]`).checked = true;
   pick(state.provider);
   $('myRole').value = state.myRole;
