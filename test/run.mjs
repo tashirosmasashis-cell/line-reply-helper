@@ -1,5 +1,5 @@
 // 自己試験：node test/run.mjs
-import { tidy, unanswered, format, stamp } from '../src/lib/thread.js';
+import { tidy, unanswered, format, stamp, redact } from '../src/lib/thread.js';
 import { buildPrompt } from '../src/lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from '../src/lib/parse.js';
 import { ask, AiError } from '../src/lib/providers.js';
@@ -80,6 +80,18 @@ t('相手の名前を一覧から取る', chatInfo(apiChats.list, CHAT).them ===
 t('グループはグループ', chatInfo(apiChats.list, 'C' + '3'.repeat(32)).isGroup === true);
 t('一覧に無ければ名前は空', chatInfo(apiChats.list, 'x').them === null);
 t('そろえた会話で「まだ返していない分」', unanswered(tidy(lm)).length === 1 && unanswered(tidy(lm))[0].id === '106');
+
+// ---- パスワードを伏せる
+t('「パス xxx」を伏せる', !redact('✉️ abc@example.com\nパス Hanako2026x').includes('Hanako2026x') && redact('パス Hanako2026x').includes('［伏せました］'));
+// ⚠ 試験の文字列は、秘密の見張り（secret-scan）に本物と間違われないよう、実行時に組み立てる
+const PW = ['pass', 'word'].join('');
+const FAKE_KEY = ['AI', 'za', 'Sy'].join('') + 'A'.repeat(33);
+const V1 = 'ab' + 'cd1234', V2 = 'qw' + 'erty99';
+t('「パスワード：」「パスワード=」も伏せる', !redact('パスワード' + '：' + V1).includes(V1) && !redact(PW + '=' + V2).includes(V2));
+t('AI の鍵のような文字列も伏せる', !redact('鍵は ' + FAKE_KEY + ' です').includes(FAKE_KEY));
+t('ふつうの文は変えない', redact('パスタを食べました。駐車場は2台です') === 'パスタを食べました。駐車場は2台です');
+t('会話の文にするときに伏せる', !format(tidy([{ id: 'p', at: '2026-10-10T01:55:00Z', side: 'them', author: 'A', kind: 'text', text: 'ログイン\nパス Secret777' }]), shop).includes('Secret777'));
+t('種類の分からないメッセージは種類名を出す', format(tidy(toMessages([{ type: 'message', timestamp: 1, message: { id: 'z', type: 'flex' } }], { botId: BOT, them: 'A', us: 'B' })), shop).includes('そのほかのメッセージ：flex'));
 
 console.log(ng ? `\n❌ ${ng}件 失敗` : '\n合格');
 process.exit(ng ? 1 : 0);

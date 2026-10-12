@@ -32,10 +32,19 @@ export function stamp(iso, tz = 'Asia/Tokyo') {
   return { date: `${p.year}年${p.month}月${p.day}日`, time: `${pad(+p.hour % 24)}:${p.minute}`, md: `${p.month}/${p.day}` };
 }
 
+// パスワードらしき所は伏せてから AI に渡す（会話にログイン情報が貼られていることがある・2026-10 実際にあった）
+// 「パス」のあとに区切り（空白・：・＝・は）があるときだけ伏せる（「パスタ」などは伏せない）
+const SECRET = /((?:パスワード|パス|ﾊﾟｽ|password|passwd|pass|pw|PIN|暗証番号)(?:\s*(?:は|:|：|=|＝)\s*|\s+))([^\s、。，,]{4,})/gi;
+const TOKEN = /\b(?:AIza[0-9A-Za-z_-]{30,}|sk-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,})\b/g;
+export function redact(text) {
+  return String(text).replace(SECRET, (_, head) => `${head}［伏せました］`).replace(TOKEN, '［鍵のような文字列を伏せました］');
+}
+
 export function lineOf(m, names) {
   const who = m.side === 'us' ? `${names.us}${m.author && m.author !== names.us ? `（${m.author}）` : ''}` : (m.author || names.them);
-  const body = m.kind === 'text' ? m.text.trim() : (KIND_LABEL[m.kind] || KIND_LABEL.other) + (m.text ? ' ' + m.text.trim() : '');
-  return `[${stamp(m.at).time}] ${who}：${body}`;
+  const label = m.kind === 'other' && m.rawType ? `（そのほかのメッセージ：${m.rawType}）` : (KIND_LABEL[m.kind] || KIND_LABEL.other);
+  const body = m.kind === 'text' ? m.text.trim() : label + (m.text ? ' ' + m.text.trim() : '');
+  return `[${stamp(m.at).time}] ${who}：${redact(body)}`;
 }
 
 /** 会話を、日付の見出しつきの文にする。まだ返していない分には印を付ける */
