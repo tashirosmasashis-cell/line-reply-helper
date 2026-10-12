@@ -22,6 +22,9 @@ async function saveMemo(name, text) {
 
 // ---------- 管理画面とのやりとり
 async function activeTab() {
+  // 試験や説明書の画像づくりのときだけ ?tab=番号 で読む先のタブを決められる（ふだんは今見ているタブ）
+  const fixed = Number(new URLSearchParams(location.search).get('tab'));
+  if (fixed) return chrome.tabs.get(fixed);
   const [t] = await chrome.tabs.query({ active: true, currentWindow: true });
   return t;
 }
