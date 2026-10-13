@@ -11,3 +11,10 @@
 .lrh-fab:focus-visible { outline: 3px solid #0b5; outline-offset: 3px; }
 .lrh-fab[hidden] { display: none; }
 .lrh-fab__dot { width: 8px; height: 8px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px rgb(255 255 255 / .35); }
+
+/* 会話の見出しの右の列に並べるとき（管理画面の「要対応」「対応済み」と同じ大きさにそろえる） */
+.lrh-fab.lrh-fab--inline {
+  position: static; min-height: 31px; padding: 0 12px; margin-right: 8px; font-size: 13px;
+  box-shadow: none;
+}
+.lrh-fab.lrh-fab--inline:hover { transform: none; box-shadow: 0 2px 8px rgb(6 199 85 / .35); }

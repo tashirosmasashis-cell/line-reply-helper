@@ -1,5 +1,5 @@
 // LINE 公式アカウントの管理画面の中で動く係。
-//   ・右下に「返信を考える」ボタンを出す
+//   ・相手の名前の横の列（「要対応」「対応済み」の並び）に「返信を考える」ボタンを出す（見つからなければ右下）
 //   ・横の窓に頼まれたら、いま開いている会話を読んで渡す（read）
 //   ・横の窓に頼まれたら、案を入力欄に入れる（insert）。送信はしない
 // 会話の中身は外へ送らない。横の窓（この拡張の中）に渡すだけ。
@@ -13,7 +13,21 @@
   btn.type = 'button';
   btn.innerHTML = '<span class="lrh-fab__dot"></span>返信を考える';
   btn.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'open-panel' }));
-  const place = () => { if (!document.body.contains(btn)) document.body.appendChild(btn); btn.hidden = !reader.isChatOpen(); };
+  // 置き場所：会話の見出しの右の列（2026-10 の調査で見た作り＝#content-secondary .sub-header の中の
+  // 「左右に分かれた行」の右側）。入力欄や自分の吹き出しに重ならない。見つからなければ右下に浮かせる。
+  const headerSlot = () => {
+    const row = document.querySelector('#content-secondary .sub-header .d-flex.justify-content-between');
+    return row && row.lastElementChild && row.lastElementChild !== row.firstElementChild ? row.lastElementChild : null;
+  };
+  const place = () => {
+    const slot = headerSlot();
+    if (slot) {
+      if (btn.parentElement !== slot) { btn.classList.add('lrh-fab--inline'); slot.prepend(btn); }
+    } else if (!document.body.contains(btn) || btn.classList.contains('lrh-fab--inline')) {
+      btn.classList.remove('lrh-fab--inline'); document.body.appendChild(btn);
+    }
+    btn.hidden = !reader.isChatOpen();
+  };
 
   // ---------- 読み取り方（管理画面の作りに合わせる所はここだけ）
   // 返す形：{ chatKey, them, us, isGroup, messages: [{ id, at, side, author, kind, text, imageUrl }] }

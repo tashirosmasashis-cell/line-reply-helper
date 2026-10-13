@@ -162,10 +162,10 @@ $('savePhotos').addEventListener('click', async () => {
   const safe = convo.them.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/^\.+/, '_').slice(0, 60) || '相手';
   for (const [i, m] of urls.entries()) {
     const d = new Date(m.at);
-    const name = `LINE返信サポート/${safe}/${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}_写真${i + 1}.jpg`;
+    const name = `返信サポート/${safe}/${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}_写真${i + 1}.jpg`;
     await chrome.downloads.download({ url: m.imageUrl, filename: name, conflictAction: 'uniquify' }).catch(() => {});
   }
-  say(`写真を ${urls.length} 枚、ダウンロードの「LINE返信サポート\\${safe}」に保存しました。`, 'ok');
+  say(`写真を ${urls.length} 枚、ダウンロードの「返信サポート\\${safe}」に保存しました。`, 'ok');
 });
 
 // ---------- 開いたとき
