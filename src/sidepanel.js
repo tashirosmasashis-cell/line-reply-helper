@@ -7,6 +7,8 @@ import { ask, PROVIDERS, AiError } from './lib/providers.js';
 const $ = (id) => document.getElementById(id);
 let convo = null;      // 読んだ会話 { chatKey, them, us, isGroup, messages }
 let tabId = null;
+let pickedId = null;   // 「まだ返していない会話」から選んだ人（開かずに読む）
+let pendingInsert = null; // 送るために会話を開いたあと、入力欄に入れる文
 let last = null;       // 最後に作った案
 
 // ---------- 設定
@@ -39,15 +41,17 @@ async function load() {
   const tab = await activeTab();
   tabId = tab?.id;
   if (!tab?.url?.startsWith('https://chat.line.biz/')) { say('LINE 公式アカウントの管理画面（chat.line.biz）で使います。', 'warn'); return false; }
-  const r = await toPage({ type: 'read' });
+  // 一覧から選んだ人がいれば、その会話を**開かずに**読む（相手に既読は付かない）
+  const r = await toPage({ type: 'read', chatId: pickedId || undefined });
   if (!r?.ok) { say(r?.error || '会話を読めませんでした（管理画面が変わった可能性があります）。', 'error'); return false; }
   if (r.convo.isGroup) { say('いまは1対1の会話だけに対応しています。', 'warn'); return false; }
   convo = { ...r.convo, messages: tidy(r.convo.messages) };
   const waiting = unanswered(convo.messages);
-  $('who').textContent = `${convo.them} さんとの会話を読みました`;
+  $('who').textContent = convo.opened ? `${convo.them} さんとの会話を読みました` : `${convo.them} さんとの会話を、開かずに読みました（既読は付いていません）`;
   $('sub').textContent = waiting.length ? `まだ返していないメッセージ ${waiting.length} 件（最新 ${convo.messages.length} 件を読みました）` : `最後に送ったのはこちらです（最新 ${convo.messages.length} 件を読みました）`;
   const s = await settings();
   $('memo').value = s.memos[convo.them] || '';
+  $('memoBox').open = !!$('memo').value;   // この人への話し方が決めてあれば、開いて見せる
   const photos = convo.messages.filter((m) => m.kind === 'image' && m.imageUrl);
   $('photos').hidden = !photos.length;
   $('photoNote').textContent = `この会話に写真が ${photos.length} 枚あります。コピーには写真が入らないので、AI に見せたいときは保存して添えてください。`;
@@ -145,6 +149,13 @@ document.addEventListener('click', async (e) => {
   const cp = e.target.closest('[data-copy]');
   if (ins) {
     const text = $(ins.dataset.insert).value;
+    // 開かずに読んだ会話なら、ここで初めて開く（このとき管理画面が既読にする）→ 開いたら入力欄に入れる
+    if (convo && !convo.opened) {
+      pendingInsert = { text, chatKey: convo.chatKey };
+      say(`${convo.them} さんとの会話を開いています。開いたら入力欄に入れます…`);
+      await toPage({ type: 'open', chatKey: convo.chatKey });
+      return;
+    }
     const r = await toPage({ type: 'insert', text, chatKey: convo?.chatKey });
     if (r?.ok) say('入力欄に入れました。読み直してから、送信は自分で押してください。', 'ok');
     else if (r?.copy) { await navigator.clipboard.writeText(text); say(`${r.error}代わりにコピーしたので、管理画面の入力欄に貼り付けてください（Ctrl + V）。`, 'warn'); }
@@ -153,6 +164,7 @@ document.addEventListener('click', async (e) => {
   if (cp) { await navigator.clipboard.writeText($(cp.dataset.copy).value); say('コピーしました。', 'ok'); }
 });
 $('think').addEventListener('click', () => think());
+$('waitingReload').addEventListener('click', () => drawWaiting());
 $('redo').addEventListener('click', () => think($('refine').value));
 $('copy').addEventListener('click', () => copyForAi().catch((e) => say('コピーできませんでした：' + e.message, 'error')));
 $('best').addEventListener('input', () => markChecks($('best').value, $('bestCheck')));
@@ -187,19 +199,80 @@ $('savePhotos').addEventListener('click', async () => {
     link.textContent = '入れ直し方を見る';
     v.appendChild(link);
   }
-  await load();
+  await fresh();
 })();
-chrome.tabs.onActivated.addListener(() => switchTo());
+chrome.tabs.onActivated.addListener(() => fresh());
+
+// 開いたとき・タブを切り替えたとき：いま開いている会話を読み、まだ返していない会話の一覧を出す
+async function fresh() {
+  last = null; pickedId = null; pendingInsert = null;
+  $('result').hidden = true;
+  say('');
+  const ok = await load();
+  if (!ok && !convo) { $('who').textContent = '会話を開くか、下の一覧から人を選んでください'; $('sub').textContent = ''; say(''); }
+  drawWaiting();
+}
 
 // 管理画面で別の人を開いたら、前の人の案を消して読み直す（前の人の案を別の人に入れる事故も防ぐ）
-async function switchTo() {
+async function switchTo(key) {
+  // 開かずに読んでいた人の会話が開いた＝案はそのまま残し、待っていた文を入力欄に入れる
+  if (key && convo && key === convo.chatKey) {
+    convo.opened = true;
+    pickedId = null;
+    $('who').textContent = `${convo.them} さんとの会話を読みました`;
+    if (pendingInsert && pendingInsert.chatKey === key) {
+      const p = pendingInsert; pendingInsert = null;
+      // 入力欄が描かれるのを少し待ってから入れる
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 400));
+        const r = await toPage({ type: 'insert', text: p.text, chatKey: p.chatKey });
+        if (r?.ok) { say('会話を開いて、入力欄に入れました。読み直してから、送信は自分で押してください。', 'ok'); return; }
+      }
+      await navigator.clipboard.writeText(p.text).catch(() => {});
+      say('会話は開きましたが、入力欄に入れられませんでした。代わりにコピーしたので、入力欄に貼り付けてください（Ctrl + V）。', 'warn');
+    }
+    return;
+  }
   last = null;
+  pickedId = null;
+  pendingInsert = null;
   $('result').hidden = true;
   $('intent').value = '';
   $('refine').value = '';
   say('');
-  if (!(await load())) { $('who').textContent = '会話を開いて「返信を考える」を押してください'; $('sub').textContent = ''; }
+  if (!key) { convo = null; $('who').textContent = '会話を開くか、下の一覧から人を選んでください'; $('sub').textContent = ''; drawWaiting(); return; }
+  if (!(await load())) { $('who').textContent = '会話を開くか、下の一覧から人を選んでください'; $('sub').textContent = ''; }
+}
+
+// ---------- まだ返していない会話（開かずに読める・既読は付かない）
+async function drawWaiting() {
+  const box = $('waiting');
+  if (!tabId) { const t = await activeTab(); tabId = t?.id; }
+  const r = await toPage({ type: 'waiting' });
+  box.innerHTML = '';
+  $('waitingCard').hidden = !r?.ok;
+  if (!r?.ok) return;
+  $('waitingNone').hidden = r.list.length > 0;
+  for (const c of r.list.slice(0, 20)) {
+    const li = document.createElement('li');
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'wait' + (convo && convo.chatKey.endsWith('/' + c.chatId) ? ' wait--on' : '');
+    b.innerHTML = '<span class="wait__name"></span><span class="wait__time"></span><span class="wait__text"></span>';
+    b.querySelector('.wait__name').textContent = c.name + (c.unread ? '（未読）' : '');
+    b.querySelector('.wait__time').textContent = new Date(c.at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    b.querySelector('.wait__text').textContent = c.text;
+    b.addEventListener('click', async () => {
+      pickedId = c.chatId;
+      last = null; pendingInsert = null;
+      $('result').hidden = true; $('intent').value = ''; $('refine').value = ''; say('');
+      await load();
+      drawWaiting();
+    });
+    li.appendChild(b);
+    box.appendChild(li);
+  }
 }
 chrome.runtime.onMessage.addListener((msg, sender) => {
-  if (msg?.type === 'chat-changed' && sender.tab?.id === tabId) switchTo();
+  if (msg?.type === 'chat-changed' && sender.tab?.id === tabId) switchTo(msg.chatKey);
 });

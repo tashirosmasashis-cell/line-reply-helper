@@ -46,6 +46,21 @@ export function toMessages(events, { botId, them, us }) {
   return out;
 }
 
+/** まだ返していない会話の一覧（相手から最後に届いた時刻が、こちらが最後に送った時刻より新しい1対1の会話）。新しい順。
+ *  ⚠ この一覧と会話の中身を読むだけでは、管理画面で「既読」にならない（2026-10-13 本人の LINE で確かめた）。 */
+export function waitingChats(chatsList) {
+  return (chatsList || [])
+    .filter((c) => c && (!c.chatType || c.chatType === 'USER') && Number(c.lastReceivedAt || 0) > Number(c.lastSentAt || 0))
+    .map((c) => ({
+      chatId: c.chatId,
+      name: c.profile?.nickname || c.profile?.name || '（名前なし）',
+      at: new Date(Number(c.lastReceivedAt)).toISOString(),
+      text: c.latestEvent?.message?.type === 'text' ? String(c.latestEvent.message.text || '').slice(0, 60) : '（写真やスタンプなど）',
+      unread: c.read === false,
+    }))
+    .sort((a, b) => b.at.localeCompare(a.at));
+}
+
 /** 相手の名前（あなたが付けた呼び名があればそれ）・グループかどうか・相手がこちらの最後の返信を読んだか
  *  会話の一覧の userLastReadAt＝相手が最後に読んだ時刻、lastSentAt＝こちらが最後に送った時刻（2026-10 の調査で確かめた） */
 export function chatInfo(chatsList, chatId) {

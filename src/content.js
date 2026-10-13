@@ -42,11 +42,22 @@
     /** いま会話を開いているか（URL に会話の印があるか） */
     isChatOpen() { return /^\/U[0-9a-f]{32}\/chat\/[A-Za-z0-9]+/.test(location.pathname); },
     /** いま開いている会話の印（別の会話に入れてしまう事故を防ぐため、読んだときと入れるときで比べる） */
-    chatKey() { return location.pathname; },
-    async read() {
+    chatKey() { const m = location.pathname.match(/^\/U[0-9a-f]{32}\/chat\/[A-Za-z0-9]+/); return m ? m[0] : ''; },
+    /** いまの画面の公式アカウントの番号（会話を開いていなくても、住所の頭にある） */
+    botId() { const m = location.pathname.match(/^\/(U[0-9a-f]{32})/); return m ? m[1] : null; },
+    /** まだ返していない会話の一覧（開かずに読める・既読にならない） */
+    async waiting() {
+      const { waitingChats } = await lib();
+      const botId = reader.botId();
+      if (!botId) throw Object.assign(new Error('LINE 公式アカウントの管理画面で使ってください。'), { kind: 'nochat' });
+      const chats = await getJson(`/api/v2/bots/${botId}/chats`);
+      return waitingChats(chats.list);
+    },
+    /** 会話を読む。chatId を渡せば、その会話を**開かずに**読む（既読にならない）。渡さなければ、いま開いている会話 */
+    async read(chatId) {
       const { parsePath, toMessages, chatInfo } = await lib();
-      const ids = parsePath(location.pathname);
-      if (!ids) throw Object.assign(new Error('相手との会話を開いてから押してください。'), { kind: 'nochat' });
+      const ids = chatId && reader.botId() ? { botId: reader.botId(), chatId } : parsePath(location.pathname);
+      if (!ids) throw Object.assign(new Error('相手との会話を開くか、窓の「まだ返していない会話」から選んでください。'), { kind: 'nochat' });
       const base = `/api/v3/bots/${ids.botId}/chats/${ids.chatId}/messages`;
       const [page1, chats, bot] = await Promise.all([
         getJson(base),
@@ -61,11 +72,12 @@
         if (older && Array.isArray(older.list)) events = older.list.concat(events);
       }
       const info = chatInfo(chats.list, ids.chatId);
-      const them = info.them || headerName() || '相手';
+      const opened = !chatId || location.pathname.endsWith('/chat/' + chatId);
+      const them = info.them || (opened ? headerName() : '') || '相手';
       const us = bot.name || 'こちら';
       const seen = new Set();
       const messages = toMessages(events, { botId: ids.botId, them, us }).filter((m) => (seen.has(m.id) ? false : seen.add(m.id)));
-      return { them, us, isGroup: info.isGroup, theyRead: info.theyRead, messages };
+      return { them, us, isGroup: info.isGroup, theyRead: info.theyRead, messages, chatKey: `/${ids.botId}/chat/${ids.chatId}`, opened };
     },
     /** 入力欄を探す。管理画面の入力欄は独自の部品 <textarea-ex id="editor">（2026-10 の調査）。中に本物の入力欄があればそれを使う */
     input() {
@@ -114,12 +126,30 @@
 
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     if (msg?.type === 'read') {
-      reader.read().then((c) => reply({ ok: true, convo: { ...c, chatKey: reader.chatKey() } }))
+      reader.read(msg.chatId).then((c) => reply({ ok: true, convo: c }))
         .catch((e) => reply({ ok: false, kind: e.kind || 'unreadable', error: e.message || String(e) }));
       return true;
     }
+    if (msg?.type === 'waiting') {
+      reader.waiting().then((list) => reply({ ok: true, list }))
+        .catch((e) => reply({ ok: false, error: e.message || String(e) }));
+      return true;
+    }
+    if (msg?.type === 'open') {
+      // 送る直前に、その会話を開く（ここで初めて管理画面が既読にする）
+      // 管理画面は1枚のページの中で切り替わる作り＝住所を変えて「戻る・進む」の合図を送れば、読み込み直さずに開く。
+      // 3秒たっても入力欄が出なければ、普通に読み込み直して開く。
+      if (typeof msg.chatKey === 'string' && /^\/U[0-9a-f]{32}\/chat\/[A-Za-z0-9]+$/.test(msg.chatKey)) {
+        history.pushState({}, '', msg.chatKey);
+        window.dispatchEvent(new PopStateEvent('popstate', { state: {} }));
+        watchChat();
+        setTimeout(() => { if (!reader.input()) location.assign(msg.chatKey); }, 3000);
+      }
+      reply({ ok: true });
+      return;
+    }
     if (msg?.type === 'insert') {
-      if (msg.chatKey !== reader.chatKey()) { reply({ ok: false, error: '読んだときと別の会話が開いています。入れるのをやめました。もう一度「返信を考える」を押してください。' }); return; }
+      if (msg.chatKey !== reader.chatKey()) { reply({ ok: false, error: '読んだときと別の会話が開いています（または、まだ開いていません）。入れるのをやめました。' }); return; }
       reply(insert(msg.text));
       return;
     }
@@ -127,7 +157,7 @@
   });
 
   // 別の人の会話を開いたら、横の窓に知らせる（窓が「◯◯ さんとの会話を読みました」を読み直す）
-  let lastKey = reader.isChatOpen() ? reader.chatKey() : '';
+  let lastKey = null;   // 最初の1回も知らせる（読み込み直したあとでも、窓が「開いた」と分かるように）
   const watchChat = () => {
     const key = reader.isChatOpen() ? reader.chatKey() : '';
     if (key === lastKey) return;
@@ -137,5 +167,7 @@
 
   // 読み取り方を決めてから、ボタンを出す（会話を開いているときだけ見せる）
   new MutationObserver(() => { place(); watchChat(); }).observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener('popstate', () => { place(); watchChat(); });
   place();
+  watchChat();
 })();

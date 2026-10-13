@@ -58,7 +58,8 @@ export function buildPrompt(o) {
     `いまは ${n.date} ${n.time}。最後のやりとりから約 ${gap} 時間たっています。` + (waiting.length ? `まだ返していない相手の最初の発言からは約 ${waitedFor} 時間です。` : ''),
   ];
   if (o.myRole && o.myRole.trim()) parts.push(`こちらの立場・口調：${o.myRole.trim()}`);
-  if (o.memo && o.memo.trim()) parts.push(`${o.them}さんについてのメモ：${o.memo.trim()}`);
+  // この人にだけ使う話し方（例：母＝フランク）。全体の立場・口調より優先する
+  if (o.memo && o.memo.trim()) parts.push(`${o.them}さんへの話し方・メモ（こちらの立場・口調より優先する）：${o.memo.trim()}`);
   if (o.intent && o.intent.trim()) parts.push(`今回こちらが伝えたいこと：${o.intent.trim()}`);
   if (waiting.length) parts.push(`まだ返していない相手の発言は ${waiting.length} 件です（★の行）。`);
   else {

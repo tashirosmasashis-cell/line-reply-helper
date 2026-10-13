@@ -4,7 +4,7 @@ import { buildPrompt } from '../src/lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from '../src/lib/parse.js';
 import { ask, AiError, PROVIDERS } from '../src/lib/providers.js';
 import { piled, weLast, shop, apiMessages, apiChats, BOT, CHAT } from './fixtures.mjs';
-import { parsePath, toMessages, chatInfo, imageUrl } from '../src/lib/linechat.js';
+import { parsePath, toMessages, chatInfo, imageUrl, waitingChats } from '../src/lib/linechat.js';
 
 let ng = 0;
 const t = (name, ok, got) => { console.log((ok ? '✅ ' : '❌ ') + name + (ok ? '' : '  → ' + JSON.stringify(got).slice(0, 300))); if (!ok) ng++; };
@@ -132,6 +132,20 @@ t('モデルを選ばなければ既定（3.8）で送る', sentModel.includes('
 await ask('gemini', { key: 'k', prompt: 'p', model: 'gemini-9.9-flash' }, async (url) => { sentModel = url; return new Response(JSON.stringify({ candidates: [] }), { status: 200 }); }, nowait);
 t('自由入力のモデル名で送れる', sentModel.includes('gemini-9.9-flash'));
 t('Claude が断ったら、はっきり伝える', (await kind(() => ask('claude', { key: 'k', prompt: 'p' }, fake(200, { stop_reason: 'refusal', content: [] }), nowait))) === 'other');
+
+// ---- まだ返していない会話の一覧（開かずに読む）
+const wl = waitingChats([
+  { chatId: 'a', chatType: 'USER', profile: { name: '山田 花子' }, lastReceivedAt: 3000, lastSentAt: 1000, read: false, latestEvent: { message: { type: 'text', text: '料金は当日払いですか' } } },
+  { chatId: 'b', chatType: 'USER', profile: { name: '佐藤 次郎', nickname: '佐藤さん（教室）' }, lastReceivedAt: 5000, lastSentAt: 4000, read: true, latestEvent: { message: { type: 'image' } } },
+  { chatId: 'c', chatType: 'USER', profile: { name: '返し済み' }, lastReceivedAt: 1000, lastSentAt: 2000 },
+  { chatId: 'g', chatType: 'GROUP', profile: { name: 'グループ' }, lastReceivedAt: 9000, lastSentAt: 0 },
+]);
+t('返していない1対1の会話だけ・新しい順', wl.map((c) => c.chatId).join() === 'b,a', wl);
+t('呼び名があれば呼び名・最後の文・未読の印', wl[0].name === '佐藤さん（教室）' && wl[1].text === '料金は当日払いですか' && wl[1].unread === true && wl[0].text.includes('写真'));
+
+// ---- この人への話し方（全体の口調より優先）
+const pMemo = buildPrompt({ messages: tidy(weLast), ...shop, now, mode: 'text', myRole: 'ていねいな敬語', memo: '母なのでフランクに、敬語なし' });
+t('この人への話し方を、全体の口調より優先と伝える', pMemo.includes('話し方・メモ（こちらの立場・口調より優先する）：母なのでフランクに'));
 
 console.log(ng ? `\n❌ ${ng}件 失敗` : '\n合格');
 process.exit(ng ? 1 : 0);

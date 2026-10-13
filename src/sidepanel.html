@@ -17,10 +17,10 @@
   <section class="card">
     <label class="label" for="intent">伝えたいこと（なくても大丈夫）</label>
     <textarea id="intent" rows="2" placeholder="例：駐車場は2台まで無料と伝えたい／来週の打ち合わせを断りたい"></textarea>
-    <details class="memo">
-      <summary>この人のメモ</summary>
-      <textarea id="memo" rows="2" placeholder="例：お客さま・HP を作っている・丁寧に"></textarea>
-      <p class="hint">メモはこのパソコンの中だけに置きます。</p>
+    <details class="memo" id="memoBox">
+      <summary>この人への話し方</summary>
+      <textarea id="memo" rows="2" placeholder="例：母＝フランクに、敬語なし／お客さま＝丁寧な敬語、絵文字は1つまで"></textarea>
+      <p class="hint">この人にだけ使う話し方です。設定の「あなたの立場・口調」より優先します。このパソコンの中だけに置きます。</p>
     </details>
     <div class="row">
       <button class="btn btn--main" id="think" type="button">返信を考える</button>
@@ -54,6 +54,16 @@
         <button class="btn" id="redo" type="button">作り直す</button>
       </div>
     </div>
+  </section>
+
+  <section class="card" id="waitingCard" hidden>
+    <div class="row-head">
+      <h2 class="h">まだ返していない会話</h2>
+      <button class="btn btn--sm" id="waitingReload" type="button">読み直す</button>
+    </div>
+    <p class="hint" style="margin-top:0">ここから選ぶと、会話を開かずに読めます（相手に既読は付きません）。送るときだけ会話を開きます。</p>
+    <ul class="waits" id="waiting"></ul>
+    <p class="hint" id="waitingNone" hidden>いまは、まだ返していない会話はありません。</p>
   </section>
 
   <section class="card" id="photos" hidden>
