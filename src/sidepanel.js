@@ -100,7 +100,8 @@ async function think(extra = '') {
     const a = parseAnswer(raw);
     if (!a.ok) { say('AI の答えを読めませんでした。もう一度押してください。', 'error'); return; }
     show(a);
-    say('');
+    // 写真を AI に見せられたかを、はっきり出す（取れなかったときは「届いたこと」だけが伝わっている）
+    say(urls.length ? (imgs.length ? `写真 ${imgs.length} 枚を AI に見せて考えました。` : `この会話の写真は取り出せなかったので、「写真が届いた」ことだけを伝えて考えました。`) : '');
   } catch (e) {
     say(e instanceof AiError ? e.message : 'うまくいきませんでした：' + (e?.message || e), 'error');
   } finally { $('think').disabled = false; }
