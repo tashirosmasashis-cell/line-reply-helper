@@ -126,7 +126,16 @@
     if (msg?.type === 'ping') { reply({ ok: true, chatOpen: reader.isChatOpen() }); return; }
   });
 
+  // 別の人の会話を開いたら、横の窓に知らせる（窓が「◯◯ さんとの会話を読みました」を読み直す）
+  let lastKey = reader.isChatOpen() ? reader.chatKey() : '';
+  const watchChat = () => {
+    const key = reader.isChatOpen() ? reader.chatKey() : '';
+    if (key === lastKey) return;
+    lastKey = key;
+    chrome.runtime.sendMessage({ type: 'chat-changed', chatKey: key }).catch(() => { /* 窓が閉じていれば何もしない */ });
+  };
+
   // 読み取り方を決めてから、ボタンを出す（会話を開いているときだけ見せる）
-  new MutationObserver(() => place()).observe(document.documentElement, { childList: true, subtree: true });
+  new MutationObserver(() => { place(); watchChat(); }).observe(document.documentElement, { childList: true, subtree: true });
   place();
 })();

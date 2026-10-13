@@ -189,4 +189,17 @@ $('savePhotos').addEventListener('click', async () => {
   }
   await load();
 })();
-chrome.tabs.onActivated.addListener(() => load());
+chrome.tabs.onActivated.addListener(() => switchTo());
+
+// 管理画面で別の人を開いたら、前の人の案を消して読み直す（前の人の案を別の人に入れる事故も防ぐ）
+async function switchTo() {
+  last = null;
+  $('result').hidden = true;
+  $('intent').value = '';
+  $('refine').value = '';
+  say('');
+  if (!(await load())) { $('who').textContent = '会話を開いて「返信を考える」を押してください'; $('sub').textContent = ''; }
+}
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (msg?.type === 'chat-changed' && sender.tab?.id === tabId) switchTo();
+});
