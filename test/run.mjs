@@ -147,5 +147,19 @@ t('呼び名があれば呼び名・最後の文・未読の印', wl[0].name ===
 const pMemo = buildPrompt({ messages: tidy(weLast), ...shop, now, mode: 'text', myRole: 'ていねいな敬語', memo: '母なのでフランクに、敬語なし' });
 t('この人への話し方を、全体の口調より優先と伝える', pMemo.includes('話し方・メモ（こちらの立場・口調より優先する）：母なのでフランクに'));
 
+// ---- 自動の返事（担当者の印なし）は「返した」に数えない
+const autoMs = tidy(toMessages([
+  { type: 'message', timestamp: 1000, message: { id: 'x1', type: 'text', text: 'テスト' } },
+  { type: 'messageSent', timestamp: 2000, message: { id: 'x2', type: 'text', text: '受け取りました' } },
+], { botId: BOT, them: 'A', us: 'B' }));
+t('印の無い送信は自動の返事', autoMs[1].auto === true);
+t('自動の返事のあとも「まだ返していない」に残る', unanswered(autoMs).length === 1);
+t('会話の文では「自動の返事」と書く', format(autoMs, shop).includes('（自動の返事）'));
+t('担当者が送った物（印あり）は自動ではない', !toMessages([{ type: 'messageSent', timestamp: 1, sendId: 's', bizId: 'b', message: { id: 'y', type: 'text', text: 'x' } }], { botId: BOT, them: 'A', us: 'B' })[0].auto);
+const wl2 = waitingChats([{ chatId: 'h', chatType: 'USER', profile: { name: '原 大樹' }, lastReceivedAt: 1000, lastSentAt: 2000, read: false, latestEvent: { type: 'messageSent', message: { type: 'text', text: '受け取りました' } } }]);
+t('最後が自動の返事なら、一覧に出る', wl2.length === 1);
+const wl3 = waitingChats([{ chatId: 'k', chatType: 'USER', profile: { name: '返し済み' }, lastReceivedAt: 1000, lastSentAt: 2000, read: true, latestEvent: { type: 'messageSent', sendId: 's', bizId: 'b', message: { type: 'text', text: 'はい' } } }]);
+t('担当者が返して読んだ会話は、一覧に出ない', wl3.length === 0);
+
 console.log(ng ? `\n❌ ${ng}件 失敗` : '\n合格');
 process.exit(ng ? 1 : 0);

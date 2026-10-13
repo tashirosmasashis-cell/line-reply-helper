@@ -20,7 +20,7 @@ export function tidy(messages) {
 /** まだ返していない分＝こちら側の誰かの最後の返信より後の、相手の発言（取り消されたものは数えない） */
 export function unanswered(messages) {
   let last = -1;
-  messages.forEach((m, i) => { if (m.side === 'us' && m.kind !== 'unsent') last = i; });
+  messages.forEach((m, i) => { if (m.side === 'us' && m.kind !== 'unsent' && !m.auto) last = i; });
   return messages.slice(last + 1).filter((m) => m.side === 'them' && m.kind !== 'unsent');
 }
 
@@ -50,7 +50,7 @@ export function redact(text, { contacts = true } = {}) {
 }
 
 export function lineOf(m, names) {
-  const who = m.side === 'us' ? `${names.us}${m.author && m.author !== names.us ? `（${m.author}）` : ''}` : (m.author || names.them);
+  const who = m.side === 'us' ? (m.auto ? `${names.us}（自動の返事）` : `${names.us}${m.author && m.author !== names.us ? `（${m.author}）` : ''}`) : (m.author || names.them);
   const label = m.kind === 'other' && m.rawType ? `（そのほかのメッセージ：${m.rawType}）` : (KIND_LABEL[m.kind] || KIND_LABEL.other);
   const body = m.kind === 'text' ? m.text.trim() : label + (m.text ? ' ' + m.text.trim() : '');
   return `[${stamp(m.at).time}] ${who}：${redact(body, { contacts: names.hideContacts !== false })}`;

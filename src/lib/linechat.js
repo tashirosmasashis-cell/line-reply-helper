@@ -38,6 +38,8 @@ export function toMessages(events, { botId, them, us }) {
     if (t === 'unsent') { m.kind = 'unsent'; } // 相手（またはこちら）が送信を取り消した印。中身は LINE 側で消えている（2026-10 の調査で確かめた名前）
     else if (kind === 'other' && t === 'location') { m.kind = 'text'; }
     else if (kind === 'other') m.rawType = String(t || e.message.contentType || '不明');
+    // 自動の返事（応答メッセージ・bot）は、担当者の印（bizId・sendId）が無い＝人が返したことにしない（2026-10-13 本物で確かめた）
+    if (side === 'us' && !e.bizId && !e.sendId) m.auto = true;
     const hash = e.message.contentHash || e.message.contentProvider?.contentHash;
     if (kind === 'image' && hash && !e.message.expired) m.imageUrl = imageUrl(botId, hash);
     if (kind === 'file' && e.message.fileName) m.text = e.message.fileName;
@@ -50,7 +52,14 @@ export function toMessages(events, { botId, them, us }) {
  *  ⚠ この一覧と会話の中身を読むだけでは、管理画面で「既読」にならない（2026-10-13 本人の LINE で確かめた）。 */
 export function waitingChats(chatsList) {
   return (chatsList || [])
-    .filter((c) => c && (!c.chatType || c.chatType === 'USER') && Number(c.lastReceivedAt || 0) > Number(c.lastSentAt || 0))
+    .filter((c) => {
+      if (!c || (c.chatType && c.chatType !== 'USER')) return false;
+      const got = Number(c.lastReceivedAt || 0), sent = Number(c.lastSentAt || 0);
+      const ev = c.latestEvent || {};
+      // 最後がこちらの「自動の返事」（担当者の印なし）なら、まだ人は返していない
+      const autoLast = ev.type === 'messageSent' && !ev.bizId && !ev.sendId;
+      return got > sent || autoLast || c.read === false;
+    })
     .map((c) => ({
       chatId: c.chatId,
       name: c.profile?.nickname || c.profile?.name || '（名前なし）',
