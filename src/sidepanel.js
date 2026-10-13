@@ -37,12 +37,12 @@ async function toPage(msg) {
 
 function say(text, tone = '') { $('status').textContent = text; $('status').dataset.tone = tone; }
 
-async function load() {
+async function load(target = pickedId) {
   const tab = await activeTab();
   tabId = tab?.id;
   if (!tab?.url?.startsWith('https://chat.line.biz/')) { say('LINE 公式アカウントの管理画面（chat.line.biz）で使います。', 'warn'); return false; }
   // 一覧から選んだ人がいれば、その会話を**開かずに**読む（相手に既読は付かない）
-  const r = await toPage({ type: 'read', chatId: pickedId || undefined });
+  const r = await toPage({ type: 'read', chatId: target || undefined });
   if (!r?.ok) { say(r?.error || '会話を読めませんでした（管理画面が変わった可能性があります）。', 'error'); return false; }
   if (r.convo.isGroup) { say('いまは1対1の会話だけに対応しています。', 'warn'); return false; }
   convo = { ...r.convo, messages: tidy(r.convo.messages) };
@@ -81,22 +81,30 @@ async function photos(urls) {
 }
 
 // ---------- ① その場で考えてもらう
+let busy = false;   // 考えている間は、ほかの知らせで窓を書き換えない
 async function think(extra = '') {
   $('think').disabled = true;
+  busy = true;
+  const target = pickedId;   // 押した時点で選んでいた人（途中で何が起きても、この人について考える）
+  let timer = null;
   try {
-    if (!(await load())) return;
+    if (!(await load(target))) return;
     await saveMemo(convo.them, $('memo').value);
     const s = await settings();
     if (s.provider === 'none' || !s.keys[s.provider]) {
       say('AI の鍵が入っていません。「AI に貼る形でコピー」を使うか、設定で AI を選んでください。', 'warn');
       return;
     }
-    say(`${PROVIDERS[s.provider].name.split('（')[0]} が考えています…`);
+    const who = PROVIDERS[s.provider].name.split('（')[0];
+    const t0 = Date.now();
+    say(`${who} が考えています…`);
+    timer = setInterval(() => say(`${who} が考えています… ${Math.round((Date.now() - t0) / 1000)}秒`), 1000);
     const urls = convo.messages.filter((m) => m.kind === 'image' && m.imageUrl).map((m) => m.imageUrl);
     const imgs = await photos(urls);
     const text = await prompt('json', extra);
     const photoNote = imgs.length ? `相手から届いた写真のうち最新 ${imgs.length} 枚を添えます。写真の中身も踏まえてください。` : '';
     const raw = await ask(s.provider, { key: s.keys[s.provider], model: s.models[s.provider], prompt: photoNote ? text.replace('\n\n会話：', `\n${photoNote}\n\n会話：`) : text, images: imgs });
+    clearInterval(timer); timer = null;
     const a = parseAnswer(raw);
     if (!a.ok) { say('AI の答えを読めませんでした。もう一度押してください。', 'error'); return; }
     show(a);
@@ -104,7 +112,7 @@ async function think(extra = '') {
     say(urls.length ? (imgs.length ? `写真 ${imgs.length} 枚を AI に見せて考えました。` : `この会話の写真は取り出せなかったので、「写真が届いた」ことだけを伝えて考えました。`) : '');
   } catch (e) {
     say(e instanceof AiError ? e.message : 'うまくいきませんでした：' + (e?.message || e), 'error');
-  } finally { $('think').disabled = false; }
+  } finally { clearInterval(timer); busy = false; $('think').disabled = false; }
 }
 
 function markChecks(text, el) {
@@ -206,6 +214,7 @@ chrome.tabs.onActivated.addListener(() => fresh());
 
 // 開いたとき・タブを切り替えたとき：いま開いている会話を読み、まだ返していない会話の一覧を出す
 async function fresh() {
+  if (busy) return;
   last = null; pickedId = null; pendingInsert = null;
   $('result').hidden = true;
   say('');
@@ -216,6 +225,9 @@ async function fresh() {
 
 // 管理画面で別の人を開いたら、前の人の案を消して読み直す（前の人の案を別の人に入れる事故も防ぐ）
 async function switchTo(key) {
+  if (busy) return;
+  // 会話を閉じた（一覧の画面）合図：一覧から選んでいる人がいれば、そのまま残す
+  if (!key && pickedId) { drawWaiting(); return; }
   // 開かずに読んでいた人の会話が開いた＝案はそのまま残し、待っていた文を入力欄に入れる
   if (key && convo && key === convo.chatKey) {
     convo.opened = true;

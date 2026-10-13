@@ -42,8 +42,14 @@ function classify(status, body) {
   return new AiError('other', `AI から思わぬ返事がありました（${status}）：${t.slice(0, 200)}`);
 }
 
+export const TIMEOUT_MS = 60_000;   // これより長く答えが無ければ止めて「混んでいます」と伝える（固まって見えないように）
 async function post(url, headers, body, fetchImpl) {
-  const res = await fetchImpl(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  const tid = ctl ? setTimeout(() => ctl.abort(), TIMEOUT_MS) : null;
+  let res;
+  try { res = await fetchImpl(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body), signal: ctl?.signal }); }
+  catch (e) { if (e?.name === 'AbortError') throw new AiError('slow', `AI から ${TIMEOUT_MS / 1000} 秒たっても答えがありませんでした。混んでいるようです。少し待ってからもう一度押してください。`); throw e; }
+  finally { if (tid) clearTimeout(tid); }
   const text = await res.text();
   if (!res.ok) throw classify(res.status, text);
   try { return JSON.parse(text); } catch { throw new AiError('other', 'AI の返事を読めませんでした。'); }

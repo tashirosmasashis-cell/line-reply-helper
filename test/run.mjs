@@ -161,5 +161,10 @@ t('最後が自動の返事なら、一覧に出る', wl2.length === 1);
 const wl3 = waitingChats([{ chatId: 'k', chatType: 'USER', profile: { name: '返し済み' }, lastReceivedAt: 1000, lastSentAt: 2000, read: true, latestEvent: { type: 'messageSent', sendId: 's', bizId: 'b', message: { type: 'text', text: 'はい' } } }]);
 t('担当者が返して読んだ会話は、一覧に出ない', wl3.length === 0);
 
+// ---- 答えが返ってこないとき（時間切れ）は、やり直さずに「答えがない」と伝える
+let slowCalls = 0;
+const slow = async () => { slowCalls++; const e = new Error('aborted'); e.name = 'AbortError'; throw e; };
+t('時間切れは「答えがない」と伝え、やり直さない', (await kind(() => ask('gemini', { key: 'k', prompt: 'p' }, slow, nowait))) === 'slow' && slowCalls === 1);
+
 console.log(ng ? `\n❌ ${ng}件 失敗` : '\n合格');
 process.exit(ng ? 1 : 0);
