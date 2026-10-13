@@ -90,7 +90,12 @@ LINE 公式アカウントの管理画面（chat.line.biz）で、**返したい
 
 ## 作った人
 
-ずんだもんAI（[GitHub](https://github.com/tashirosmasashis-cell)）
+ずんだもんAI（高槻市の AI エンジニア）
+
+- サイト（実績・デモ・ブログ）：https://zunda.tsutsumicommunity.org
+- GitHub：https://github.com/tashirosmasashis-cell
+
+業務の仕組みづくりのご相談は、サイトの「事業者の方へ」からどうぞ。
 
 ## ライセンス
 
