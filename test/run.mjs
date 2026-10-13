@@ -2,7 +2,7 @@
 import { tidy, unanswered, format, stamp, redact } from '../src/lib/thread.js';
 import { buildPrompt } from '../src/lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from '../src/lib/parse.js';
-import { ask, AiError } from '../src/lib/providers.js';
+import { ask, AiError, PROVIDERS } from '../src/lib/providers.js';
 import { piled, weLast, shop, apiMessages, apiChats, BOT, CHAT } from './fixtures.mjs';
 import { parsePath, toMessages, chatInfo, imageUrl } from '../src/lib/linechat.js';
 
@@ -122,6 +122,16 @@ t('取り消しは「取り消し」として読む', withUnsent[2].kind === 'un
 t('取り消しは「まだ返していない」に数えない', unanswered(withUnsent).length === 2 && !unanswered(withUnsent).some((m) => m.kind === 'unsent'));
 t('会話の文では「送信を取り消しました」と書く', format(withUnsent, shop).includes('（送信を取り消しました）'));
 t('取り消しには触れないよう AI に伝える', buildPrompt({ messages: withUnsent, ...shop, now, mode: 'text' }).includes('触れたり想像したりしない'));
+
+// ---- モデルの選択肢（各社の最新2つ・既定は1つ目）
+t('3社とも選択肢が2つ・既定は1つ目', Object.values(PROVIDERS).every((p) => p.models.length === 2 && p.defaultModel === p.models[0].id));
+t('Gemini は 3.8 と 3.6（3.5 は 3.6 に回されるので出さない）', PROVIDERS.gemini.models.map((m) => m.id).join() === 'gemini-3.8-flash,gemini-3.6-flash');
+let sentModel;
+await ask('gemini', { key: 'k', prompt: 'p' }, async (url) => { sentModel = url; return new Response(JSON.stringify({ candidates: [] }), { status: 200 }); }, nowait);
+t('モデルを選ばなければ既定（3.8）で送る', sentModel.includes('gemini-3.8-flash'));
+await ask('gemini', { key: 'k', prompt: 'p', model: 'gemini-9.9-flash' }, async (url) => { sentModel = url; return new Response(JSON.stringify({ candidates: [] }), { status: 200 }); }, nowait);
+t('自由入力のモデル名で送れる', sentModel.includes('gemini-9.9-flash'));
+t('Claude が断ったら、はっきり伝える', (await kind(() => ask('claude', { key: 'k', prompt: 'p' }, fake(200, { stop_reason: 'refusal', content: [] }), nowait))) === 'other');
 
 console.log(ng ? `\n❌ ${ng}件 失敗` : '\n合格');
 process.exit(ng ? 1 : 0);

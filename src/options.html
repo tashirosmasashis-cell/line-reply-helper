@@ -23,8 +23,10 @@
         <label class="label" for="key">鍵（API キー）</label>
         <input id="key" type="password" autocomplete="off" spellcheck="false" placeholder="ここに貼る">
         <p class="hint" id="keyHelp"></p>
-        <label class="label field" for="model">モデル（わからなければそのまま）</label>
-        <input id="model" type="text" spellcheck="false">
+        <label class="label field" for="modelSelect">モデル（わからなければ一番上のまま）</label>
+        <select id="modelSelect"></select>
+        <input id="model" type="text" spellcheck="false" placeholder="モデルの名前を入れる（例：新しく出たモデル）" hidden style="margin-top:8px">
+        <p class="hint">選択肢は、各社のいちばん新しい2つです。ほかのモデルを使うときは「自由入力」を選んで名前を入れます。</p>
       </div>
     </section>
 

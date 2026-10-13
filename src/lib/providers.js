@@ -1,11 +1,33 @@
 // 鍵ありのとき、選んだ AI に頼み文を送って答えをもらう。鍵は Chrome の中（chrome.storage.local）にだけ置き、ここでは送り先の AI にだけ渡す。
 // 写真：{ mime, base64 } の配列。AI ごとの形に直して付ける。
 
+// 設定画面のモデルの選択肢＝各社の「最新の2つ」（2026-10-13 に各社の公式の資料で確かめた名前）＋自由入力。
+// ⚠ 新しいモデルが出たら、ここの2つを入れ替える（使う人は自由入力でも新しい名前を入れられる）。
+//   Gemini：3.5-flash は 10/8 から 3.6-flash に、3.7-flash は 3.8-flash に自動で回されるので選択肢に出さない。
 export const PROVIDERS = {
-  gemini: { name: 'Gemini（Google・無料の鍵あり）', defaultModel: 'gemini-3.5-flash', host: 'https://generativelanguage.googleapis.com/*' },
-  openai: { name: 'ChatGPT（OpenAI・有料）', defaultModel: 'gpt-5-mini', host: 'https://api.openai.com/*' },
-  claude: { name: 'Claude（Anthropic・有料）', defaultModel: 'claude-haiku-5-5', host: 'https://api.anthropic.com/*' },
+  gemini: {
+    name: 'Gemini（Google・無料の鍵あり）', host: 'https://generativelanguage.googleapis.com/*',
+    models: [
+      { id: 'gemini-3.8-flash', label: 'gemini-3.8-flash（いちばん新しい）' },
+      { id: 'gemini-3.6-flash', label: 'gemini-3.6-flash（ひとつ前・混んでいる日に通りやすいことがある）' },
+    ],
+  },
+  openai: {
+    name: 'ChatGPT（OpenAI・有料）', host: 'https://api.openai.com/*',
+    models: [
+      { id: 'gpt-6.1-sol', label: 'gpt-6.1-sol（新しい・賢さと費用のバランス）' },
+      { id: 'gpt-6-luna', label: 'gpt-6-luna（安い）' },
+    ],
+  },
+  claude: {
+    name: 'Claude（Anthropic・有料）', host: 'https://api.anthropic.com/*',
+    models: [
+      { id: 'claude-opus-5-5', label: 'claude-opus-5-5（いちばん賢い主力）' },
+      { id: 'claude-sonnet-5-5', label: 'claude-sonnet-5-5（速くて安め）' },
+    ],
+  },
 };
+for (const p of Object.values(PROVIDERS)) p.defaultModel = p.models[0].id;
 
 export class AiError extends Error {
   /** kind: 'key'（鍵が違う）| 'quota'（回数切れ）| 'busy'（混雑）| 'other' */
@@ -42,8 +64,10 @@ const senders = {
   },
   async claude({ key, model, prompt, images }, f) {
     const content = [...images.map((im) => ({ type: 'image', source: { type: 'base64', media_type: im.mime, data: im.base64 } })), { type: 'text', text: prompt }];
+    // ⚠ 新しい Claude は考える段階が既定でオン＝出力の上限は余裕を持たせる（足りないと返信が途中で切れる）
     const j = await post('https://api.anthropic.com/v1/messages', { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      { model, max_tokens: 2000, messages: [{ role: 'user', content }] }, f);
+      { model, max_tokens: 16000, messages: [{ role: 'user', content }] }, f);
+    if (j.stop_reason === 'refusal') throw new AiError('other', 'Claude がこの会話への返信づくりを断りました。別の AI か「AI に貼る形でコピー」を使ってください。');
     return (j.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('');
   },
 };

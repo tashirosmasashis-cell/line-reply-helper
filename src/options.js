@@ -9,13 +9,33 @@ const HELP = {
 };
 let state = { provider: 'none', keys: {}, models: {}, myRole: '', memos: {}, showContacts: false };
 
+const FREE = '__free__';
+
+// モデルの選び方＝最新の2つ＋「自由入力」。保存してあるモデルが2つにないときは自由入力として出す。
+function drawModels(provider) {
+  const sel = $('modelSelect');
+  sel.innerHTML = '';
+  for (const m of PROVIDERS[provider].models) sel.appendChild(new Option(m.label, m.id));
+  sel.appendChild(new Option('自由入力（ほかのモデルの名前を入れる）', FREE));
+  const saved = state.models[provider] || PROVIDERS[provider].defaultModel;
+  const known = PROVIDERS[provider].models.some((m) => m.id === saved);
+  sel.value = known ? saved : FREE;
+  $('model').value = known ? '' : saved;
+  $('model').hidden = known;
+}
+
+function chosenModel(provider) {
+  const v = $('modelSelect').value;
+  return v === FREE ? ($('model').value.trim() || PROVIDERS[provider].defaultModel) : v;
+}
+
 function pick(provider) {
   state.provider = provider;
   const on = provider !== 'none';
   $('keyField').hidden = !on;
   if (!on) return;
   $('key').value = state.keys[provider] || '';
-  $('model').value = state.models[provider] || PROVIDERS[provider].defaultModel;
+  drawModels(provider);
   $('keyHelp').textContent = HELP[provider];
 }
 
@@ -40,7 +60,7 @@ async function save() {
   const p = state.provider;
   if (p !== 'none') {
     state.keys[p] = $('key').value.trim();
-    state.models[p] = $('model').value.trim() || PROVIDERS[p].defaultModel;
+    state.models[p] = chosenModel(p);
     // 選んだ AI の住所にだけ、送ってよい許可をもらう（保存ボタンを押した操作の続きで聞く）
     const granted = await chrome.permissions.request({ origins: [PROVIDERS[p].host] });
     if (!granted) { $('status').textContent = 'AI に送る許可がもらえなかったので、保存をやめました。'; $('status').dataset.tone = 'error'; return; }
@@ -64,4 +84,9 @@ async function save() {
   drawMemos();
   document.querySelectorAll('input[name=provider]').forEach((r) => r.addEventListener('change', () => pick(r.value)));
   $('save').addEventListener('click', save);
+  $('modelSelect').addEventListener('change', () => {
+    const free = $('modelSelect').value === FREE;
+    $('model').hidden = !free;
+    if (free) $('model').focus();
+  });
 })();
