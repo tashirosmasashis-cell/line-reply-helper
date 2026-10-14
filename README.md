@@ -93,6 +93,7 @@ LINE 公式アカウントの管理画面（chat.line.biz）で、**返したい
 ずんだもんAI（高槻市の AI エンジニア）
 
 - サイト（実績・デモ・ブログ）：https://zunda.tsutsumicommunity.org
+- この道具を作った話（ブログ）：https://zunda.tsutsumicommunity.org/blog/line-reply-helper/
 - GitHub：https://github.com/tashirosmasashis-cell
 
 業務の仕組みづくりのご相談は、サイトの「事業者の方へ」からどうぞ。
