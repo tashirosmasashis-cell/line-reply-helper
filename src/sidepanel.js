@@ -3,6 +3,7 @@ import { tidy, unanswered } from './lib/thread.js';
 import { buildPrompt } from './lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from './lib/parse.js';
 import { ask, PROVIDERS, AiError } from './lib/providers.js';
+import { safeName, photoFileName, splitPhotos, pruneSaved } from './lib/photos.js';
 
 const $ = (id) => document.getElementById(id);
 let convo = null;      // 読んだ会話 { chatKey, them, us, isGroup, messages }
@@ -54,7 +55,9 @@ async function load(target = pickedId) {
   $('memoBox').open = !!$('memo').value;   // この人への話し方が決めてあれば、開いて見せる
   const photos = convo.messages.filter((m) => m.kind === 'image' && m.imageUrl);
   $('photos').hidden = !photos.length;
-  $('photoNote').textContent = `この会話に写真が ${photos.length} 枚あります。コピーには写真が入らないので、AI に見せたいときは保存して添えてください。`;
+  const { savedPhotos = {} } = await chrome.storage.local.get('savedPhotos');
+  const savedN = photos.filter((m) => savedPhotos[m.id]).length;
+  $('photoNote').textContent = `この会話に写真が ${photos.length} 枚あります${savedN ? `（保存済み ${savedN} 枚）` : ''}。コピーには写真が入らないので、AI に見せたいときは保存して添えてください。`;
   return true;
 }
 
@@ -177,16 +180,27 @@ $('waitingReload').addEventListener('click', () => drawWaiting());
 $('redo').addEventListener('click', () => think($('refine').value));
 $('copy').addEventListener('click', () => copyForAi().catch((e) => say('コピーできませんでした：' + e.message, 'error')));
 $('best').addEventListener('input', () => markChecks($('best').value, $('bestCheck')));
-$('savePhotos').addEventListener('click', async () => {
-  const urls = convo.messages.filter((m) => m.kind === 'image' && m.imageUrl);
-  // 保存するフォルダの名前に使えない文字・「..」で始まる名前は置き換える（相手の名前は相手が決められるため）
-  const safe = convo.them.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/^\.+/, '_').slice(0, 60) || '相手';
-  for (const [i, m] of urls.entries()) {
-    const d = new Date(m.at);
-    const name = `返信サポート/${safe}/${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}_写真${i + 1}.jpg`;
-    await chrome.downloads.download({ url: m.imageUrl, filename: name, conflictAction: 'uniquify' }).catch(() => {});
-  }
-  say(`写真を ${urls.length} 枚、ダウンロードの「返信サポート\\${safe}」に保存しました。`, 'ok');
+// 写真の保存：同じ写真を二重に保存しない（保存した写真は覚えて飛ばす・押している途中の連打も1回にする・名前は写真ごとに決まる）
+let savingPhotos = false;
+$('savePhotos').addEventListener('click', async (e) => {
+  if (savingPhotos || !convo) return;
+  savingPhotos = true;
+  $('savePhotos').disabled = true;
+  try {
+    const force = e.shiftKey;   // Shift を押しながら＝保存済みも保存し直す（同じ名前に上書きするので増えない）
+    const { savedPhotos = {} } = await chrome.storage.local.get('savedPhotos');
+    const { all, todo, skipped } = splitPhotos(convo.messages, savedPhotos, force);
+    const where = `ダウンロードの「返信サポート\\${safeName(convo.them)}」`;
+    if (!todo.length) { say(`写真 ${all.length} 枚は、すべて保存済みです（${where}）。保存し直したいときは、Shift を押しながらこのボタンを押してください（同じ名前で上書きするので、増えません）。`, 'ok'); return; }
+    let ok = 0;
+    for (const m of todo) {
+      const id = await chrome.downloads.download({ url: m.imageUrl, filename: photoFileName(convo.them, m), conflictAction: 'overwrite' }).catch(() => undefined);
+      if (id !== undefined) { savedPhotos[m.id] = Date.now(); ok++; }
+    }
+    await chrome.storage.local.set({ savedPhotos: pruneSaved(savedPhotos) });
+    const rest = todo.length - ok;
+    say(`写真を ${ok} 枚、${where} に保存しました。${skipped.length ? `（保存済みの ${skipped.length} 枚は飛ばしました）` : ''}${rest ? `保存できなかった写真が ${rest} 枚あります。もう一度押してください。` : ''}`, rest ? 'warn' : 'ok');
+  } finally { savingPhotos = false; $('savePhotos').disabled = false; }
 });
 
 // ---------- 開いたとき

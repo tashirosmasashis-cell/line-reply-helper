@@ -5,6 +5,7 @@ import { parseAnswer, NEEDS_CHECK } from '../src/lib/parse.js';
 import { ask, AiError, PROVIDERS } from '../src/lib/providers.js';
 import { piled, weLast, shop, apiMessages, apiChats, BOT, CHAT } from './fixtures.mjs';
 import { parsePath, toMessages, chatInfo, imageUrl, waitingChats } from '../src/lib/linechat.js';
+import { safeName, photoFileName, splitPhotos, pruneSaved } from '../src/lib/photos.js';
 
 let ng = 0;
 const t = (name, ok, got) => { console.log((ok ? '✅ ' : '❌ ') + name + (ok ? '' : '  → ' + JSON.stringify(got).slice(0, 300))); if (!ok) ng++; };
@@ -165,6 +166,21 @@ t('担当者が返して読んだ会話は、一覧に出ない', wl3.length ===
 let slowCalls = 0;
 const slow = async () => { slowCalls++; const e = new Error('aborted'); e.name = 'AbortError'; throw e; };
 t('時間切れは「答えがない」と伝え、やり直さない', (await kind(() => ask('gemini', { key: 'k', prompt: 'p' }, slow, nowait))) === 'slow' && slowCalls === 1);
+
+// ---- 写真の保存（二重に保存しない）
+const ph = (id, at) => ({ id, at, kind: 'image', imageUrl: 'https://chat-content.line.biz/x/' + id });
+const p1 = ph('600000000000000001', '2026-10-24T10:30:00+09:00'), p2 = ph('600000000000000002', '2026-10-24T10:31:00+09:00');
+t('写真の名前は写真ごとに決まる（日時＋番号）', photoFileName('原', p2).includes('2026-10-24_1031_') && photoFileName('原', p1) !== photoFileName('原', p2), [photoFileName('原', p1), photoFileName('原', p2)]);
+const before = splitPhotos([p2], {});
+const after = splitPhotos([ph('600000000000000000', '2026-10-24T10:00:00+09:00'), p2], {});
+t('古い写真が増えても、同じ写真は同じ名前（何番目かで決めない）', photoFileName('原', before.all[0]) === photoFileName('原', after.all[1]));
+const sp = splitPhotos([p1, p2], { [p1.id]: 1 });
+t('保存済みの写真は飛ばす', sp.todo.length === 1 && sp.todo[0].id === p2.id && sp.skipped.length === 1, sp);
+t('Shift（force）なら保存済みも保存し直す', splitPhotos([p1, p2], { [p1.id]: 1 }, true).todo.length === 2);
+t('写真でないものは数えない', splitPhotos([{ id: 'a', kind: 'text', text: 'x' }, { id: 'b', kind: 'image' }], {}).all.length === 0);
+t('保存先の名前に使えない文字・「..」は置き換える', !safeName('../a:b').includes('..') && !/[\\/:*?"<>|]/.test(safeName('../a:b')), safeName('../a:b'));
+t('相手の名前が空なら「相手」', safeName('') === '相手');
+t('保存済みの記録は新しい分だけ残す', Object.keys(pruneSaved({ a: 1, b: 3, c: 2 }, 2)).sort().join() === 'b,c');
 
 console.log(ng ? `\n❌ ${ng}件 失敗` : '\n合格');
 process.exit(ng ? 1 : 0);
