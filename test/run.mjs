@@ -5,7 +5,7 @@ import { parseAnswer, NEEDS_CHECK } from '../src/lib/parse.js';
 import { ask, AiError, PROVIDERS } from '../src/lib/providers.js';
 import { piled, weLast, shop, apiMessages, apiChats, BOT, CHAT } from './fixtures.mjs';
 import { parsePath, toMessages, chatInfo, imageUrl, waitingChats } from '../src/lib/linechat.js';
-import { safeName, photoFileName, splitPhotos, pruneSaved } from '../src/lib/photos.js';
+import { safeName, photoFileName, splitPhotos, pruneSaved, extFor, savePhotos } from '../src/lib/photos.js';
 
 let ng = 0;
 const t = (name, ok, got) => { console.log((ok ? '✅ ' : '❌ ') + name + (ok ? '' : '  → ' + JSON.stringify(got).slice(0, 300))); if (!ok) ng++; };
@@ -167,17 +167,65 @@ let slowCalls = 0;
 const slow = async () => { slowCalls++; const e = new Error('aborted'); e.name = 'AbortError'; throw e; };
 t('時間切れは「答えがない」と伝え、やり直さない', (await kind(() => ask('gemini', { key: 'k', prompt: 'p' }, slow, nowait))) === 'slow' && slowCalls === 1);
 
-// ---- 写真の保存（二重に保存しない）
-const ph = (id, at) => ({ id, at, kind: 'image', imageUrl: 'https://chat-content.line.biz/x/' + id });
+// ---- 写真の保存（同じ写真は絶対に二重に保存しない・2026-10-27 中身で見分ける形に）
+const ph = (id, at, file) => ({ id, at, kind: 'image', imageUrl: 'https://chat-content.line.biz/x/' + (file || id) });
 const p1 = ph('600000000000000001', '2026-10-24T10:30:00+09:00'), p2 = ph('600000000000000002', '2026-10-24T10:31:00+09:00');
-t('写真の名前は写真ごとに決まる（日時＋番号）', photoFileName('原', p2).includes('2026-10-24_1031_') && photoFileName('原', p1) !== photoFileName('原', p2), [photoFileName('原', p1), photoFileName('原', p2)]);
-const before = splitPhotos([p2], {});
-const after = splitPhotos([ph('600000000000000000', '2026-10-24T10:00:00+09:00'), p2], {});
-t('古い写真が増えても、同じ写真は同じ名前（何番目かで決めない）', photoFileName('原', before.all[0]) === photoFileName('原', after.all[1]));
+t('写真の名前は中身の指紋で決まる（日時＋指紋の頭12文字・種類の拡張子）', photoFileName('原', p2, 'abcdef0123456789', 'image/png') === '返信サポート/原/2026-10-24_1031_abcdef012345.png', photoFileName('原', p2, 'abcdef0123456789', 'image/png'));
+t('種類が分からなければ jpg', extFor('') === 'jpg' && extFor('image/jpeg') === 'jpg' && extFor('image/webp') === 'webp');
 const sp = splitPhotos([p1, p2], { [p1.id]: 1 });
-t('保存済みの写真は飛ばす', sp.todo.length === 1 && sp.todo[0].id === p2.id && sp.skipped.length === 1, sp);
-t('Shift（force）なら保存済みも保存し直す', splitPhotos([p1, p2], { [p1.id]: 1 }, true).todo.length === 2);
+t('番号で保存済みの写真は飛ばす', sp.todo.length === 1 && sp.todo[0].id === p2.id && sp.skipped.length === 1, sp);
 t('写真でないものは数えない', splitPhotos([{ id: 'a', kind: 'text', text: 'x' }, { id: 'b', kind: 'image' }], {}).all.length === 0);
+// Chrome の部品を差し替えて、保存の流れをまるごと確かめる
+function fakeChrome({ history = [], files = {} } = {}) {
+  const store = {};
+  const got = [];   // 実際にダウンロードした物
+  return {
+    got, store,
+    storage: { get: async (keys) => Object.fromEntries(keys.filter((k) => k in store).map((k) => [k, JSON.parse(JSON.stringify(store[k]))])), set: async (o) => Object.assign(store, JSON.parse(JSON.stringify(o))) },
+    downloads: {
+      search: async ({ url, filenameRegex }) => [...history, ...got].filter((d) => (url ? d.url === url : new RegExp(filenameRegex).test(d.filename || ''))),
+      download: async (o) => { got.push({ url: o.url, filename: o.filename, state: 'complete' }); return got.length; },
+    },
+    get: async (url) => {
+      if (!(url in files)) return { ok: false, status: 404 };
+      const bytes = new TextEncoder().encode(files[url]);
+      return { ok: true, blob: async () => ({ type: 'image/jpeg', arrayBuffer: async () => bytes.buffer }) };
+    },
+  };
+}
+{
+  // 同じ写真（中身が同じ）が別のメッセージで2回届いた＋もう1枚
+  const a = ph('700000000000000001', '2026-10-27T09:00:00+09:00', 'fileA'), a2 = ph('700000000000000002', '2026-10-27T09:05:00+09:00', 'fileA2'), b = ph('700000000000000003', '2026-10-27T09:10:00+09:00', 'fileB');
+  const fc = fakeChrome({ files: { [a.imageUrl]: 'SAME', [a2.imageUrl]: 'SAME', [b.imageUrl]: 'OTHER' } });
+  const r1 = await savePhotos({ them: '原', messages: [a, a2, b] }, fc);
+  t('中身が同じ写真は、別のメッセージで届いても1回だけ保存する', fc.got.length === 2 && r1.ok === 2 && r1.skipped === 1, { got: fc.got, r1 });
+  const r2 = await savePhotos({ them: '原', messages: [a, a2, b] }, fc);
+  t('もう一度押しても、1枚も保存しない', fc.got.length === 2 && r2.ok === 0 && r2.skipped === 3, r2);
+  // 記録が消えても（別の拡張・入れ直し）、ダウンロードの履歴で保存済みと分かる
+  for (const k of Object.keys(fc.store)) delete fc.store[k];
+  const r3 = await savePhotos({ them: '原', messages: [a, a2, b] }, fc);
+  t('記録が消えても、ダウンロードの履歴にある写真は保存しない', fc.got.length === 2 && r3.ok === 0, r3);
+  // 相手の名前が変わって保存先のフォルダが変わっても、中身が同じなら保存しない
+  const r4 = await savePhotos({ them: '原さん（教室）', messages: [a, a2, b] }, fc);
+  t('相手の名前（フォルダ）が変わっても、同じ写真は保存しない', fc.got.length === 2 && r4.ok === 0, r4);
+}
+{
+  // 前に古い名前で保存した写真（ダウンロードの履歴にある）
+  const a = ph('710000000000000001', '2026-10-20T09:00:00+09:00');
+  const fc = fakeChrome({ history: [{ url: a.imageUrl, filename: '返信サポート/原/3.jpg', state: 'complete' }], files: { [a.imageUrl]: 'X' } });
+  const r = await savePhotos({ them: '原', messages: [a] }, fc);
+  t('前の名前の決め方で保存した写真も、保存し直さない', fc.got.length === 0 && r.skipped === 1, r);
+  // 途中で止まったダウンロードは保存済みに数えない
+  const c = ph('710000000000000002', '2026-10-20T09:01:00+09:00');
+  const fc2 = fakeChrome({ history: [{ url: c.imageUrl, state: 'interrupted' }], files: { [c.imageUrl]: 'Y' } });
+  const rc = await savePhotos({ them: '原', messages: [c] }, fc2);
+  t('途中で止まったダウンロードは、保存し直す', fc2.got.length === 1 && rc.ok === 1, rc);
+  // 中身が取り出せない写真は保存しない（見分けられない物は落とさない）
+  const d = ph('710000000000000003', '2026-10-20T09:02:00+09:00');
+  const fc3 = fakeChrome({});
+  const rd = await savePhotos({ them: '原', messages: [d] }, fc3);
+  t('中身を取り出せない写真は保存しない', fc3.got.length === 0 && rd.ng === 1, rd);
+}
 t('保存先の名前に使えない文字・「..」は置き換える', !safeName('../a:b').includes('..') && !/[\\/:*?"<>|]/.test(safeName('../a:b')), safeName('../a:b'));
 t('相手の名前が空なら「相手」', safeName('') === '相手');
 t('保存済みの記録は新しい分だけ残す', Object.keys(pruneSaved({ a: 1, b: 3, c: 2 }, 2)).sort().join() === 'b,c');

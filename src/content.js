@@ -4,8 +4,12 @@
 //   ・横の窓に頼まれたら、案を入力欄に入れる（insert）。送信はしない
 // 会話の中身は外へ送らない。横の窓（この拡張の中）に渡すだけ。
 (() => {
-  if (window.__lrhLoaded) return;
-  window.__lrhLoaded = true;
+  // 拡張が読み込み直されると、前の係は拡張とのつながりが切れたまま画面に残る（ボタンを押しても横の窓が開かない）。
+  // 前の係が生きていれば何もしない／切れていれば、前のボタンを外して、この係が代わる（2026-10-27 本人「一度閉じたら開けない」）
+  const alive = () => { try { return !!chrome.runtime?.id; } catch { return false; } };
+  if (window.__lrhAlive?.()) return;
+  window.__lrhAlive = alive;
+  document.querySelectorAll('.lrh-fab').forEach((b) => b.remove());
 
   // ---------- ボタン
   const btn = document.createElement('button');
@@ -13,6 +17,7 @@
   btn.type = 'button';
   btn.innerHTML = '<span class="lrh-fab__dot"></span>返信を考える';
   btn.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'open-panel' }));
+  const observer = new MutationObserver(() => { place(); if (alive()) watchChat(); });
   // 置き場所：会話の見出しの右の列（2026-10 の調査で見た作り＝#content-secondary .sub-header の中の
   // 「左右に分かれた行」の右側）。入力欄や自分の吹き出しに重ならない。見つからなければ右下に浮かせる。
   const headerSlot = () => {
@@ -20,6 +25,7 @@
     return row && row.lastElementChild && row.lastElementChild !== row.firstElementChild ? row.lastElementChild : null;
   };
   const place = () => {
+    if (!alive()) { btn.remove(); observer.disconnect(); return; }   // つながりが切れた係は身を引く（新しい係のボタンだけが残る）
     const slot = headerSlot();
     if (slot) {
       if (btn.parentElement !== slot) { btn.classList.add('lrh-fab--inline'); slot.prepend(btn); }
@@ -166,8 +172,8 @@
   };
 
   // 読み取り方を決めてから、ボタンを出す（会話を開いているときだけ見せる）
-  new MutationObserver(() => { place(); watchChat(); }).observe(document.documentElement, { childList: true, subtree: true });
-  window.addEventListener('popstate', () => { place(); watchChat(); });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener('popstate', () => { place(); if (alive()) watchChat(); });
   place();
   watchChat();
 })();

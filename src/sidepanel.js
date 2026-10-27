@@ -3,7 +3,7 @@ import { tidy, unanswered } from './lib/thread.js';
 import { buildPrompt } from './lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from './lib/parse.js';
 import { ask, PROVIDERS, AiError } from './lib/providers.js';
-import { safeName, photoFileName, splitPhotos, pruneSaved } from './lib/photos.js';
+import { safeName, savePhotos } from './lib/photos.js';
 
 const $ = (id) => document.getElementById(id);
 let convo = null;      // 読んだ会話 { chatKey, them, us, isGroup, messages }
@@ -180,28 +180,27 @@ $('waitingReload').addEventListener('click', () => drawWaiting());
 $('redo').addEventListener('click', () => think($('refine').value));
 $('copy').addEventListener('click', () => copyForAi().catch((e) => say('コピーできませんでした：' + e.message, 'error')));
 $('best').addEventListener('input', () => markChecks($('best').value, $('bestCheck')));
-// 写真の保存：同じ写真を二重に保存しない（保存した写真は覚えて飛ばす・押している途中の連打も1回にする・名前は写真ごとに決まる）
+// 写真の保存：同じ写真を絶対に二重に保存しない（見分けるのは写真の中身・名前も中身で決まる・ダウンロードの履歴も見る）
+//   ・押している途中の連打も1回（窓が2つ開いていても、保存は1つずつ順に＝navigator.locks）
+//   ・記録は1枚保存するたびに書く（途中で窓を閉じても、保存した分は覚えている）
 let savingPhotos = false;
-$('savePhotos').addEventListener('click', async (e) => {
+$('savePhotos').addEventListener('click', async () => {
   if (savingPhotos || !convo) return;
   savingPhotos = true;
   $('savePhotos').disabled = true;
   try {
-    const force = e.shiftKey;   // Shift を押しながら＝保存済みも保存し直す（同じ名前に上書きするので増えない）
-    const { savedPhotos = {} } = await chrome.storage.local.get('savedPhotos');
-    const { all, todo, skipped } = splitPhotos(convo.messages, savedPhotos, force);
-    const where = `ダウンロードの「返信サポート\\${safeName(convo.them)}」`;
-    if (!todo.length) { say(`写真 ${all.length} 枚は、すべて保存済みです（${where}）。保存し直したいときは、Shift を押しながらこのボタンを押してください（同じ名前で上書きするので、増えません）。`, 'ok'); return; }
-    let ok = 0;
-    for (const m of todo) {
-      const id = await chrome.downloads.download({ url: m.imageUrl, filename: photoFileName(convo.them, m), conflictAction: 'overwrite' }).catch(() => undefined);
-      if (id !== undefined) { savedPhotos[m.id] = Date.now(); ok++; }
-    }
-    await chrome.storage.local.set({ savedPhotos: pruneSaved(savedPhotos) });
-    const rest = todo.length - ok;
-    say(`写真を ${ok} 枚、${where} に保存しました。${skipped.length ? `（保存済みの ${skipped.length} 枚は飛ばしました）` : ''}${rest ? `保存できなかった写真が ${rest} 枚あります。もう一度押してください。` : ''}`, rest ? 'warn' : 'ok');
+    await navigator.locks.request('lrh-save-photos', () => saveNow(convo));
+  } catch (e) {
+    say('写真を保存できませんでした：' + (e.message || e), 'error');
   } finally { savingPhotos = false; $('savePhotos').disabled = false; }
 });
+
+async function saveNow(c) {
+  const where = `ダウンロードの「返信サポート\\${safeName(c.them)}」`;
+  const r = await savePhotos(c, { storage: chrome.storage.local, downloads: chrome.downloads, get: (u, o) => fetch(u, o) });
+  if (r.all && r.skipped === r.all) { say(`写真 ${r.all} 枚は、すべて保存済みです（${where}）。同じ写真は二度と保存しません。`, 'ok'); return; }
+  say(`写真を ${r.ok} 枚、${where} に保存しました。${r.skipped ? `（保存済みと同じ写真 ${r.skipped} 枚は飛ばしました）` : ''}${r.ng ? `取り出せなかった写真が ${r.ng} 枚あります。もう一度押してください（保存済みの写真は飛ばします）。` : ''}`, r.ng ? 'warn' : 'ok');
+}
 
 // ---------- 開いたとき
 (async () => {
