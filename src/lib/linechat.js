@@ -74,11 +74,14 @@ export function waitingChats(chatsList) {
  *  会話の一覧の userLastReadAt＝相手が最後に読んだ時刻、lastSentAt＝こちらが最後に送った時刻（2026-10 の調査で確かめた） */
 export function chatInfo(chatsList, chatId) {
   const c = (chatsList || []).find((x) => x && x.chatId === chatId);
-  if (!c) return { them: null, isGroup: false, theyRead: null };
+  if (!c) return { them: null, isGroup: false, theyRead: null, unread: null };
   const sent = Number(c.lastSentAt) || 0, read = Number(c.userLastReadAt) || 0;
   return {
     them: c.profile?.nickname || c.profile?.name || null,
     isGroup: !!c.chatType && c.chatType !== 'USER',
     theyRead: sent ? { read: read >= sent, at: read ? new Date(read).toISOString() : null } : null,
+    // userLastReadAtは「相手が読んだ時刻」。未読だけコピーには、こちらのlastReadAtを使う。
+    unread: typeof c.read === 'boolean' ? { read: c.read,
+      after: typeof c.lastReadAt === 'number' && Number.isFinite(c.lastReadAt) && c.lastReadAt >= 0 ? c.lastReadAt : null } : null,
   };
 }

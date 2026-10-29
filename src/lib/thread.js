@@ -24,6 +24,16 @@ export function unanswered(messages) {
   return messages.slice(last + 1).filter((m) => m.side === 'them' && m.kind !== 'unsent');
 }
 
+/** LINEでこちらがまだ読んでいない相手のメッセージ。境目が不明なら推測しない。 */
+export function unreadOnly(messages, state, complete = true) {
+  if (!state || typeof state.read !== 'boolean') return { ok: false, reason: 'LINEの未読の状態を取得できませんでした。会話を読み直してください。' };
+  if (state.read) return { ok: true, messages: [] };
+  if (state.after === null || !Number.isFinite(state.after) || !complete) return { ok: false, reason: '未読の先頭まで取得できませんでした。会話を読み直してください。' };
+  return { ok: true, messages: messages.filter((m) => m.side === 'them' && m.kind !== 'unsent'
+    && Number.isFinite(new Date(m.at).getTime()) && new Date(m.at).getTime() > state.after)
+    .slice().sort((a, b) => String(a.at).localeCompare(String(b.at))) };
+}
+
 /** 日本時間の「10/12 20:28」。日付が変わったら見出しを入れるのは format の側 */
 const pad = (n) => String(n).padStart(2, '0');
 export function stamp(iso, tz = 'Asia/Tokyo') {

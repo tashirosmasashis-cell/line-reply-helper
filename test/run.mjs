@@ -1,11 +1,12 @@
 // 自己試験：node test/run.mjs
-import { tidy, unanswered, format, stamp, redact } from '../src/lib/thread.js';
+import { tidy, unanswered, unreadOnly, format, stamp, redact } from '../src/lib/thread.js';
 import { buildPrompt } from '../src/lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from '../src/lib/parse.js';
 import { ask, AiError, PROVIDERS } from '../src/lib/providers.js';
 import { piled, weLast, shop, apiMessages, apiChats, BOT, CHAT } from './fixtures.mjs';
 import { parsePath, toMessages, chatInfo, imageUrl, waitingChats } from '../src/lib/linechat.js';
 import { safeName, photoFileName, splitPhotos, pruneSaved, extFor, savePhotos } from '../src/lib/photos.js';
+import { testPanel } from './panel.mjs';
 
 let ng = 0;
 const t = (name, ok, got) => { console.log((ok ? '✅ ' : '❌ ') + name + (ok ? '' : '  → ' + JSON.stringify(got).slice(0, 300))); if (!ok) ng++; };
@@ -230,5 +231,27 @@ t('保存先の名前に使えない文字・「..」は置き換える', !safeN
 t('相手の名前が空なら「相手」', safeName('') === '相手');
 t('保存済みの記録は新しい分だけ残す', Object.keys(pruneSaved({ a: 1, b: 3, c: 2 }, 2)).sort().join() === 'b,c');
 
+// 未読と未返信は異なる。こちらの既読の時刻だけで選ぶ（相手の既読では選ばない）。
+const unreadSample = [
+  { id: 'r1', at: '2026-10-29T10:00:00Z', side: 'them', kind: 'text', text: '読んだ相談' },
+  { id: 'r2', at: '2026-10-29T11:00:00Z', side: 'us', kind: 'text', text: 'こちらの文' },
+  { id: 'r3', at: '2026-10-29T12:00:00Z', side: 'them', kind: 'text', text: 'まだ読んでいない相談' },
+  { id: 'r4', at: '2026-10-29T12:01:00Z', side: 'them', kind: 'image' },
+  { id: 'r5', at: '2026-10-29T12:02:00Z', side: 'them', kind: 'unsent' },
+];
+const cut = Date.parse('2026-10-29T10:00:00Z');
+const selected = unreadOnly(unreadSample, { read: false, after: cut });
+t('未読だけは、既読以前・こちらの文・送信取消を含めない', selected.ok && selected.messages.map((m) => m.id).join() === 'r3,r4', selected);
+t('既読の会話には未読はない（未返信が残っていても入れない）', unreadOnly(unreadSample, { read: true, after: cut }).messages.length === 0);
+t('未読の境目が取れないとき、未返信へ勝手に置き換えない', !unreadOnly(unreadSample, null).ok && !unreadOnly(unreadSample, { read: false, after: null }).ok);
+t('未読の先頭が取れていなければ、一部分を全部としてコピーしない', !unreadOnly(unreadSample, { read: false, after: cut }, false).ok);
+t('一度も読んでいない会話は全受信が未読', unreadOnly(unreadSample, { read: false, after: 0 }).messages.length === 3);
+const manyUnread = Array.from({ length: 130 }, (_, i) => ({ ...unreadSample[2], id: String(i) }));
+t('未読は100件で切り落とさない', unreadOnly(manyUnread, { read: false, after: cut }).messages.length === 130);
+const receivedUnreadInfo = chatInfo([{ chatId: 'sample', read: false, lastReadAt: cut, userLastReadAt: cut + 99999999 }], 'sample').unread;
+t('こちらの既読の時刻を使い、相手の既読の時刻と混同しない', receivedUnreadInfo.after === cut && !receivedUnreadInfo.read);
+const unreadPrompt = buildPrompt({ messages: selected.messages, them: '架空の相手', us: '架空のお店', scope: 'unread', mode: 'text' });
+t('未読だけの頼み文に、既読の履歴が無いことを明示する', unreadPrompt.includes('既読の会話とこちらの過去の返信は含めていません') && !unreadPrompt.includes('読んだ相談'));
+await testPanel(t);
 console.log(ng ? `\n❌ ${ng}件 失敗` : '\n合格');
 process.exit(ng ? 1 : 0);

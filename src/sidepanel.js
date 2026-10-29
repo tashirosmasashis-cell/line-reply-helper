@@ -1,5 +1,5 @@
 // 横の窓：会話を読む → 頼み方を作る → ①その場で AI に考えてもらう ②コピーして貼る → 入力欄に入れる
-import { tidy, unanswered } from './lib/thread.js';
+import { tidy, unanswered, unreadOnly } from './lib/thread.js';
 import { buildPrompt } from './lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from './lib/parse.js';
 import { ask, PROVIDERS, AiError } from './lib/providers.js';
@@ -11,6 +11,9 @@ let tabId = null;
 let pickedId = null;   // 「まだ返していない会話」から選んだ人（開かずに読む）
 let pendingInsert = null; // 送るために会話を開いたあと、入力欄に入れる文
 let last = null;       // 最後に作った案
+let resultTarget = null; // 表示した案が属する相手とタブ
+let loadVersion = 0;   // 遅れて返った前の相手の読み取りを表示しない
+let refreshAfterThink = false;
 
 // ---------- 設定
 async function settings() {
@@ -39,32 +42,45 @@ async function toPage(msg) {
 function say(text, tone = '') { $('status').textContent = text; $('status').dataset.tone = tone; }
 
 async function load(target = pickedId) {
+  const version = ++loadVersion;
+  const previous = convo;
+  const editedMemo = $('memo').value;
   const tab = await activeTab();
+  if (version !== loadVersion) return false;
   tabId = tab?.id;
-  if (!tab?.url?.startsWith('https://chat.line.biz/')) { say('LINE 公式アカウントの管理画面（chat.line.biz）で使います。', 'warn'); return false; }
+  if (!tab?.url?.startsWith('https://chat.line.biz/')) { convo = null; say('LINE 公式アカウントの管理画面（chat.line.biz）で使います。', 'warn'); return false; }
   // 一覧から選んだ人がいれば、その会話を**開かずに**読む（相手に既読は付かない）
   const r = await toPage({ type: 'read', chatId: target || undefined });
-  if (!r?.ok) { say(r?.error || '会話を読めませんでした（管理画面が変わった可能性があります）。', 'error'); return false; }
-  if (r.convo.isGroup) { say('いまは1対1の会話だけに対応しています。', 'warn'); return false; }
+  if (version !== loadVersion) return false;
+  if (!r?.ok) { convo = null; say(r?.error || '会話を読めませんでした（管理画面が変わった可能性があります）。', 'error'); return false; }
+  if (r.convo.isGroup) { convo = null; say('いまは1対1の会話だけに対応しています。', 'warn'); return false; }
+  const s = await settings();
+  const { savedPhotos = {} } = await chrome.storage.local.get('savedPhotos');
+  if (version !== loadVersion) return false;
   convo = { ...r.convo, messages: tidy(r.convo.messages) };
+  convo.unreadSelection = unreadOnly(r.convo.messages, r.convo.unread, r.convo.unreadComplete === true);
+  if (previous && previous.chatKey !== convo.chatKey) {
+    last = null; resultTarget = null;
+    $('result').hidden = true;
+    $('intent').value = ''; $('refine').value = '';
+  }
   const waiting = unanswered(convo.messages);
   $('who').textContent = convo.opened ? `${convo.them} さんとの会話を読みました` : `${convo.them} さんとの会話を、開かずに読みました（既読は付いていません）`;
   $('sub').textContent = waiting.length ? `まだ返していないメッセージ ${waiting.length} 件（最新 ${convo.messages.length} 件を読みました）` : `最後に送ったのはこちらです（最新 ${convo.messages.length} 件を読みました）`;
-  const s = await settings();
-  $('memo').value = s.memos[convo.them] || '';
+  // 同じ相手を読み直しても、いま編集中の話し方を保存前の内容へ戻さない。
+  $('memo').value = previous?.chatKey === convo.chatKey ? editedMemo : s.memos[convo.them] || '';
   $('memoBox').open = !!$('memo').value;   // この人への話し方が決めてあれば、開いて見せる
   const photos = convo.messages.filter((m) => m.kind === 'image' && m.imageUrl);
   $('photos').hidden = !photos.length;
-  const { savedPhotos = {} } = await chrome.storage.local.get('savedPhotos');
   const savedN = photos.filter((m) => savedPhotos[m.id]).length;
   $('photoNote').textContent = `この会話に写真が ${photos.length} 枚あります${savedN ? `（保存済み ${savedN} 枚）` : ''}。コピーには写真が入らないので、AI に見せたいときは保存して添えてください。`;
   return true;
 }
 
-async function prompt(mode, extra = '') {
+async function prompt(mode, extra = '', onlyUnread = false) {
   const s = await settings();
   const intent = [$('intent').value, extra].filter((x) => x && x.trim()).join('\n');
-  return buildPrompt({ messages: convo.messages, them: convo.them, us: convo.us, intent, myRole: s.myRole, memo: $('memo').value, theyRead: convo.theyRead, hideContacts: !s.showContacts, mode });
+  return buildPrompt({ messages: onlyUnread ? convo.unreadSelection.messages : convo.messages, them: convo.them, us: convo.us, intent, myRole: s.myRole, memo: $('memo').value, theyRead: convo.theyRead, hideContacts: !s.showContacts, mode, scope: onlyUnread ? 'unread' : 'all' });
 }
 
 // ---------- 写真の中身（管理画面と同じログインで、最新の4枚まで）。取れない写真は飛ばす＝「写真が届いた」とだけ伝わる
@@ -85,9 +101,16 @@ async function photos(urls) {
 
 // ---------- ① その場で考えてもらう
 let busy = false;   // 考えている間は、ほかの知らせで窓を書き換えない
+function setBusy(value) {
+  busy = value;
+  // 案の生成中に、コピー・再生成・一覧の相手選びが重なって会話を取り違えない。
+  document.querySelectorAll('button, #intent, #memo, #refine').forEach((el) => { el.disabled = value; });
+}
 async function think(extra = '') {
-  $('think').disabled = true;
-  busy = true;
+  if (busy) return;
+  setBusy(true);
+  last = null;
+  $('result').hidden = true;
   const target = pickedId;   // 押した時点で選んでいた人（途中で何が起きても、この人について考える）
   let timer = null;
   try {
@@ -110,12 +133,22 @@ async function think(extra = '') {
     clearInterval(timer); timer = null;
     const a = parseAnswer(raw);
     if (!a.ok) { say('AI の答えを読めませんでした。もう一度押してください。', 'error'); return; }
+    // 生成中に管理画面の相手やタブが変わっていたら、前の相手の案は出さない。
+    if (refreshAfterThink) return;
     show(a);
     // 写真を AI に見せられたかを、はっきり出す（取れなかったときは「届いたこと」だけが伝わっている）
     say(urls.length ? (imgs.length ? `写真 ${imgs.length} 枚を AI に見せて考えました。` : `この会話の写真は取り出せなかったので、「写真が届いた」ことだけを伝えて考えました。`) : '');
   } catch (e) {
     say(e instanceof AiError ? e.message : 'うまくいきませんでした：' + (e?.message || e), 'error');
-  } finally { clearInterval(timer); busy = false; $('think').disabled = false; }
+  } finally {
+    clearInterval(timer);
+    setBusy(false);
+    if (refreshAfterThink) {
+      refreshAfterThink = false;
+      await fresh();
+      say('考えている途中で会話かタブが変わったため、前の相手の案は表示しませんでした。返したい相手を選んで、もう一度押してください。', 'warn');
+    }
+  }
 }
 
 function markChecks(text, el) {
@@ -126,6 +159,7 @@ function markChecks(text, el) {
 
 function show(a) {
   last = a;
+  resultTarget = { chatKey: convo.chatKey, tabId };
   $('result').hidden = false;
   $('points').innerHTML = '';
   for (const p of a.points) { const li = document.createElement('li'); li.textContent = p; $('points').appendChild(li); }
@@ -148,18 +182,41 @@ function show(a) {
 }
 
 // ---------- ② コピーして貼る
-async function copyForAi() {
-  if (!(await load())) return;
-  await saveMemo(convo.them, $('memo').value);
-  await navigator.clipboard.writeText(await prompt('text'));
-  say('コピーしました。ChatGPT・Claude・Gemini などに貼って送ってください。出た返信をコピーして、管理画面の入力欄に貼れば完了です。', 'ok');
+async function copyForAi(onlyUnread = false) {
+  if (busy) return;
+  setBusy(true);
+  try {
+    if (!(await load())) return;
+    if (onlyUnread && !convo.unreadSelection.ok) { say(convo.unreadSelection.reason, 'warn'); return; }
+    if (onlyUnread && !convo.unreadSelection.messages.length) {
+      say('未読のメッセージはありません。コピーの内容は変えていません。', 'warn');
+      return;
+    }
+    await saveMemo(convo.them, $('memo').value);
+    const text = await prompt('text', '', onlyUnread);
+    if (refreshAfterThink) return;
+    await navigator.clipboard.writeText(text);
+    say((onlyUnread ? `未読のメッセージ ${convo.unreadSelection.messages.length} 件だけをコピーしました。` : 'コピーしました。') + 'ChatGPT・Claude・Gemini などに貼って送ってください。出た返信をコピーして、管理画面の入力欄に貼れば完了です。', 'ok');
+  } finally {
+    setBusy(false);
+    if (refreshAfterThink) {
+      refreshAfterThink = false;
+      await fresh();
+      say('処理中に会話かタブが変わったため、コピーを中止しました。返したい相手を選んで、もう一度押してください。', 'warn');
+    }
+  }
 }
 
 // ---------- 入力欄に入れる・コピー・写真の保存
 document.addEventListener('click', async (e) => {
+  if (busy) return;
   const ins = e.target.closest('[data-insert]');
   const cp = e.target.closest('[data-copy]');
   if (ins) {
+    if (!last || !convo || resultTarget?.chatKey !== convo.chatKey || resultTarget?.tabId !== tabId) {
+      say('この案を作ったときと会話が変わっています。返したい相手を選んで、もう一度考えてください。', 'warn');
+      return;
+    }
     const text = $(ins.dataset.insert).value;
     // 開かずに読んだ会話なら、ここで初めて開く（このとき管理画面が既読にする）→ 開いたら入力欄に入れる
     if (convo && !convo.opened) {
@@ -179,6 +236,7 @@ $('think').addEventListener('click', () => think());
 $('waitingReload').addEventListener('click', () => drawWaiting());
 $('redo').addEventListener('click', () => think($('refine').value));
 $('copy').addEventListener('click', () => copyForAi().catch((e) => say('コピーできませんでした：' + e.message, 'error')));
+$('copyUnread').addEventListener('click', () => copyForAi(true).catch((e) => say('コピーできませんでした：' + e.message, 'error')));
 $('best').addEventListener('input', () => markChecks($('best').value, $('bestCheck')));
 // 写真の保存：同じ写真を絶対に二重に保存しない（見分けるのは写真の中身・名前も中身で決まる・ダウンロードの履歴も見る）
 //   ・押している途中の連打も1回（窓が2つ開いていても、保存は1つずつ順に＝navigator.locks）
@@ -227,7 +285,7 @@ chrome.tabs.onActivated.addListener(() => fresh());
 
 // 開いたとき・タブを切り替えたとき：いま開いている会話を読み、まだ返していない会話の一覧を出す
 async function fresh() {
-  if (busy) return;
+  if (busy) { refreshAfterThink = true; ++loadVersion; return; }
   last = null; pickedId = null; pendingInsert = null;
   $('result').hidden = true;
   say('');
@@ -238,7 +296,7 @@ async function fresh() {
 
 // 管理画面で別の人を開いたら、前の人の案を消して読み直す（前の人の案を別の人に入れる事故も防ぐ）
 async function switchTo(key) {
-  if (busy) return;
+  if (busy) { refreshAfterThink = true; ++loadVersion; return; }
   // 会話を閉じた（一覧の画面）合図：一覧から選んでいる人がいれば、そのまま残す
   if (!key && pickedId) { drawWaiting(); return; }
   // 開かずに読んでいた人の会話が開いた＝案はそのまま残し、待っていた文を入力欄に入れる
@@ -283,12 +341,14 @@ async function drawWaiting() {
     const li = document.createElement('li');
     const b = document.createElement('button');
     b.type = 'button';
+    b.disabled = busy;
     b.className = 'wait' + (convo && convo.chatKey.endsWith('/' + c.chatId) ? ' wait--on' : '');
     b.innerHTML = '<span class="wait__name"></span><span class="wait__time"></span><span class="wait__text"></span>';
     b.querySelector('.wait__name').textContent = c.name + (c.unread ? '（未読）' : '');
     b.querySelector('.wait__time').textContent = new Date(c.at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     b.querySelector('.wait__text').textContent = c.text;
     b.addEventListener('click', async () => {
+      if (busy) return;
       pickedId = c.chatId;
       last = null; pendingInsert = null;
       $('result').hidden = true; $('intent').value = ''; $('refine').value = ''; say('');

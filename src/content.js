@@ -72,18 +72,27 @@
       ]);
       if (!page1 || !Array.isArray(page1.list)) throw Object.assign(new Error('会話を読めませんでした（管理画面が変わった可能性があります）。'), { kind: 'unreadable' });
       let events = page1.list;
-      // もう1ページ古い分（最新 100 件ほどにする）。取れなければ最初の分だけで進める
-      if (page1.backward) {
-        const older = await getJson(`${base}?backward=${encodeURIComponent(page1.backward)}`).catch(() => null);
-        if (older && Array.isArray(older.list)) events = older.list.concat(events);
-      }
       const info = chatInfo(chats.list, ids.chatId);
+      // もう1ページ古い分（最新 100 件ほどにする）。取れなければ最初の分だけで進める
+      let backward = page1.backward;
+      const unreadCovered = () => info.unread?.after !== null && info.unread?.after !== undefined
+        && events.some((e) => e.type === 'message' && Number(e.timestamp) <= info.unread.after);
+      // 通常は2ページ。未読が多いときだけ、未読の先頭まで追加で読む（既読にはしない）。
+      for (let page = 1; backward && page < 20 && (page === 1 || (info.unread?.read === false && !unreadCovered())); page++) {
+        const older = await getJson(`${base}?backward=${encodeURIComponent(backward)}`).catch(() => null);
+        if (!older || !Array.isArray(older.list)) break;
+        events = older.list.concat(events);
+        const next = older.backward;
+        if (next && next === backward) break;
+        backward = next;
+      }
       const opened = !chatId || location.pathname.endsWith('/chat/' + chatId);
       const them = info.them || (opened ? headerName() : '') || '相手';
       const us = bot.name || 'こちら';
       const seen = new Set();
       const messages = toMessages(events, { botId: ids.botId, them, us }).filter((m) => (seen.has(m.id) ? false : seen.add(m.id)));
-      return { them, us, isGroup: info.isGroup, theyRead: info.theyRead, messages, chatKey: `/${ids.botId}/chat/${ids.chatId}`, opened };
+      return { them, us, isGroup: info.isGroup, theyRead: info.theyRead, unread: info.unread,
+        unreadComplete: !backward || unreadCovered(), messages, chatKey: `/${ids.botId}/chat/${ids.chatId}`, opened };
     },
     /** 入力欄を探す。管理画面の入力欄は独自の部品 <textarea-ex id="editor">（2026-10 の調査）。中に本物の入力欄があればそれを使う */
     input() {
