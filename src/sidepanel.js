@@ -4,6 +4,7 @@ import { buildPrompt } from './lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from './lib/parse.js';
 import { ask, PROVIDERS, AiError } from './lib/providers.js';
 import { safeName, savePhotos } from './lib/photos.js';
+import { savedFolder, chooseFolder, canWrite, folderOf } from './lib/folder.js';
 
 const $ = (id) => document.getElementById(id);
 let convo = null;      // 読んだ会話 { chatKey, them, us, isGroup, messages }
@@ -238,24 +239,38 @@ $('redo').addEventListener('click', () => think($('refine').value));
 $('copy').addEventListener('click', () => copyForAi().catch((e) => say('コピーできませんでした：' + e.message, 'error')));
 $('copyUnread').addEventListener('click', () => copyForAi(true).catch((e) => say('コピーできませんでした：' + e.message, 'error')));
 $('best').addEventListener('input', () => markChecks($('best').value, $('bestCheck')));
-// 写真の保存：同じ写真を絶対に二重に保存しない（見分けるのは写真の中身・名前も中身で決まる・ダウンロードの履歴も見る）
+// 写真の保存：同じ写真を絶対に二重に保存しない（押すたびに保存先のフォルダを読み、見た目で比べる・lib/photos.js）
 //   ・押している途中の連打も1回（窓が2つ開いていても、保存は1つずつ順に＝navigator.locks）
-//   ・記録は1枚保存するたびに書く（途中で窓を閉じても、保存した分は覚えている）
 let savingPhotos = false;
 $('savePhotos').addEventListener('click', async () => {
   if (savingPhotos || !convo) return;
   savingPhotos = true;
   $('savePhotos').disabled = true;
   try {
-    await navigator.locks.request('lrh-save-photos', () => saveNow(convo));
+    let dir = await savedFolder();
+    if (!dir) {
+      say('写真を保存するフォルダを選んでください（前に保存したフォルダがあれば、そのフォルダを選びます）。', 'info');
+      dir = await chooseFolder();
+    }
+    if (!(await canWrite(dir))) { say('フォルダを使う許可がありませんでした。もう一度押して、許可してください。', 'warn'); return; }
+    await navigator.locks.request('lrh-save-photos', () => saveNow(convo, dir));
   } catch (e) {
-    say('写真を保存できませんでした：' + (e.message || e), 'error');
+    if (e.name === 'AbortError') say('フォルダを選ばなかったので、保存しませんでした。', 'info');
+    else say('写真を保存できませんでした：' + (e.message || e), 'error');
   } finally { savingPhotos = false; $('savePhotos').disabled = false; }
 });
+$('photoFolder').addEventListener('click', async () => {
+  try {
+    const dir = await chooseFolder();
+    say(`写真の保存先を「${dir.name}」にしました。`, 'ok');
+  } catch (e) {
+    if (e.name !== 'AbortError') say('フォルダを変えられませんでした：' + (e.message || e), 'error');
+  }
+});
 
-async function saveNow(c) {
-  const where = `ダウンロードの「返信サポート\\${safeName(c.them)}」`;
-  const r = await savePhotos(c, { storage: chrome.storage.local, downloads: chrome.downloads, get: (u, o) => fetch(u, o) });
+async function saveNow(c, dir) {
+  const where = `「${dir.name}\\${safeName(c.them)}」`;
+  const r = await savePhotos(c, { storage: chrome.storage.local, folder: folderOf(dir), get: (u, o) => fetch(u, o) });
   if (r.all && r.skipped === r.all) { say(`写真 ${r.all} 枚は、すべて保存済みです（${where}）。同じ写真は二度と保存しません。`, 'ok'); return; }
   say(`写真を ${r.ok} 枚、${where} に保存しました。${r.skipped ? `（保存済みと同じ写真 ${r.skipped} 枚は飛ばしました）` : ''}${r.ng ? `取り出せなかった写真が ${r.ng} 枚あります。もう一度押してください（保存済みの写真は飛ばします）。` : ''}`, r.ng ? 'warn' : 'ok');
 }

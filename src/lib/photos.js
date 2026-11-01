@@ -1,9 +1,9 @@
-// 写真の保存：同じ写真を絶対に二重に保存しないための決まり（2026-10-27 作り直し）。
-//   ・見分けるのは写真の「中身」（指紋＝SHA-256）。メッセージの番号や名前では見分けない
-//     （番号で見ていたときは、名前の決め方が変わる前に保存した写真・同じ写真が別のメッセージで届いたものを、別の写真として保存し直していた）
-//   ・名前も中身から決める（日時＋指紋の頭12文字）＝同じ写真はいつ押しても同じ名前
-//   ・保存する前に、ダウンロードの履歴に同じ住所・同じ指紋の名前の写真があれば飛ばす（記録が消えても・ほかの拡張で保存した分も拾う）
-//   ・指紋が取れない写真は保存しない（見分けられない物を落とすと二重になりうる）
+// 写真の保存：同じ写真を絶対に二重に保存しないための決まり（2026-11-01 作り直し）。
+//   ・正本は保存先のフォルダの中身。押すたびにフォルダの写真を読み、そこに無い写真だけを書く
+//     （拡張の記録とダウンロードの履歴だけを見ていたときは、Chrome を変えた・履歴を消した・別の版で保存した写真を知らず、全部保存し直していた）
+//   ・見分けるのは写真の見た目（縮めた絵の明暗の並び）。LINE は同じ写真を 384px でも 256px でも返すので、中身の指紋では別物に見える
+//     （実測 2026-11-01：同じ写真どうしの差は 0〜7、別の写真は 14 以上。64 のうち SAME_LOOK 以下を同じと見る）
+//   ・見た目を比べられない写真は保存しない（見分けられない物を書くと二重になりうる）
 
 /** 保存するフォルダの名前に使える形にする（相手の名前は相手が決められるため、使えない文字・「..」で始まる名前は置き換える） */
 export function safeName(them) {
@@ -18,14 +18,11 @@ export function extFor(mime) {
   return { 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif' }[t] || 'jpg';
 }
 
-/** 名前に入れる指紋の長さ（ダウンロードの履歴を、この指紋で探して保存済みかを見る） */
-export const SHA_IN_NAME = 12;
-
-/** ダウンロードの中での保存先（返信サポート/相手の名前/日時_指紋.拡張子）。sha＝写真の中身の指紋 */
+/** 保存先のフォルダの中での場所（相手の名前/日時_指紋.拡張子）。sha＝写真の中身の指紋 */
 export function photoFileName(them, m, sha, mime) {
   const d = new Date(m.at);
   const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
-  return `返信サポート/${safeName(them)}/${day}_${String(sha).slice(0, SHA_IN_NAME)}.${extFor(mime)}`;
+  return `${safeName(them)}/${day}_${String(sha).slice(0, 12)}.${extFor(mime)}`;
 }
 
 /** 写真の中身の指紋（SHA-256 の16進） */
@@ -34,6 +31,56 @@ export async function fingerprint(buf) {
   return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+/** 64 のうちこの数以下の違いなら同じ写真（実測の境目＝同じ写真は7以下・別の写真は14以上） */
+export const SAME_LOOK = 8;
+
+/** 明暗の並び（横9×縦8に縮めて、となりより明るいかを64個並べる）から、見た目の印を16進で作る */
+export function lookFromGray(gray) {
+  let hex = '';
+  for (let i = 0; i < 64; i += 4) {
+    let n = 0;
+    for (let k = 0; k < 4; k++) {
+      const p = i + k, x = p % 8, y = (p - x) / 8;
+      n = n * 2 + (gray[y * 9 + x] > gray[y * 9 + x + 1] ? 1 : 0);
+    }
+    hex += n.toString(16);
+  }
+  return hex;
+}
+
+/** 写真の見た目の印 */
+export async function lookPrint(blob) {
+  const bmp = await createImageBitmap(blob);
+  // 一度 90×80 にして、10×10 ごとの平均で 9×8 にする（9×8 へ直接縮めると元の大きさで結果が変わり、同じ写真を別物と見た・2026-11-01 実物で確かめた）
+  const canvas = new OffscreenCanvas(90, 80);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(bmp, 0, 0, 90, 80);
+  bmp.close();
+  const px = ctx.getImageData(0, 0, 90, 80).data;
+  const gray = new Array(72).fill(0);
+  for (let y = 0; y < 80; y++) {
+    for (let x = 0; x < 90; x++) {
+      const i = (y * 90 + x) * 4;
+      gray[Math.floor(y / 10) * 9 + Math.floor(x / 10)] += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+    }
+  }
+  return lookFromGray(gray);
+}
+
+/** 見た目の印の違いの数（0〜64） */
+export function lookDistance(a, b) {
+  let d = 0;
+  for (let i = 0; i < 16; i++) {
+    let x = parseInt(a[i], 16) ^ parseInt(b[i], 16);
+    while (x) { d += x & 1; x >>= 1; }
+  }
+  return d;
+}
+
+/** 見た目の印の一覧の中に、同じ写真があるか */
+export const sameLookIn = (look, looks) => looks.some((x) => lookDistance(look, x) <= SAME_LOOK);
+
 /** 写真のメッセージと、もう保存済みと分かっている物（メッセージの番号で）に分ける。番号で分からない物は、中身を見て決める */
 export function splitPhotos(messages, savedIds) {
   const all = (messages || []).filter((m) => m.kind === 'image' && m.imageUrl);
@@ -41,51 +88,53 @@ export function splitPhotos(messages, savedIds) {
   return { all, todo: all.filter((m) => !done[m.id]), skipped: all.filter((m) => done[m.id]) };
 }
 
-/** 中身の指紋で決める：保存済みの指紋なら飛ばす */
-export const isSavedHash = (sha, savedHashes) => !!(sha && savedHashes && savedHashes[sha]);
-
 /** 記録を新しい2万件までにする（増え続けないように。2万件でも Chrome の中の置き場の上限には遠い） */
 export function pruneSaved(saved, limit = 20000) {
   const rows = Object.entries(saved || {}).sort((a, b) => b[1] - a[1]).slice(0, limit);
   return Object.fromEntries(rows);
 }
 
-/** ダウンロードの履歴の中で、保存できている（または保存中の）物があるか。途中で止まった物は数えない */
-const anyKept = (rows) => (rows || []).some((d) => d.state !== 'interrupted');
-
 /**
- * 写真を保存する（同じ写真は絶対に二重に保存しない）。Chrome の部品は渡してもらう（試験で差し替えられるように）
- *   storage＝chrome.storage.local／downloads＝chrome.downloads／get＝写真を取り出す（fetch）
- *   ① メッセージの番号で保存済み → 飛ばす
- *   ② ダウンロードの履歴に同じ住所 → 飛ばす（この記録より前・名前の決め方が違ったころ・ほかの拡張で保存した分も）
- *   ③ 中身の指紋が保存済み → 飛ばす（同じ写真が別のメッセージで届いた・前に別の名前で保存した）
- *   ④ ダウンロードの履歴に、名前に同じ指紋の入った写真がある → 飛ばす（記録が消えても・相手の名前のフォルダが変わっても）
- *   指紋が取れない写真は保存しない。記録は1枚ごとに書く（途中で窓を閉じても、保存した分は覚えている）
+ * 写真を保存する（同じ写真は絶対に二重に保存しない）。部品は渡してもらう（試験で差し替えられるように）
+ *   storage＝chrome.storage.local／folder＝保存先（list と write・lib/folder.js）／get＝写真を取り出す（fetch）／print＝見た目の印
+ *   ① 保存先のフォルダの写真をすべて読み、中身の指紋と見た目の印を取る
+ *   ② メッセージの番号で保存済み → 飛ばす
+ *   ③ 中身の指紋か見た目が、フォルダの写真・保存の記録と同じ → 飛ばす（別の大きさ・別のメッセージ・別の名前でも）
+ *   見分けられない写真は保存しない。記録は1枚ごとに書く（途中で窓を閉じても、保存した分は覚えている）
  */
-export async function savePhotos(c, { storage, downloads, get }) {
-  const rec = await storage.get(['savedPhotos', 'savedPhotoHashes']);
+export async function savePhotos(c, { storage, folder, get, print = lookPrint }) {
+  const rec = await storage.get(['savedPhotos', 'savedPhotoHashes', 'savedPhotoLooks']);
   const ids = rec.savedPhotos || {};
   const hashes = rec.savedPhotoHashes || {};
-  const keep = () => storage.set({ savedPhotos: pruneSaved(ids), savedPhotoHashes: pruneSaved(hashes) });
+  const looks = rec.savedPhotoLooks || {};
+  const keep = () => storage.set({ savedPhotos: pruneSaved(ids), savedPhotoHashes: pruneSaved(hashes), savedPhotoLooks: pruneSaved(looks) });
+  const shas = new Set(Object.keys(hashes));
+  const seen = Object.keys(looks);
+  for (const f of await folder.list()) {
+    try {
+      shas.add(await fingerprint(await f.blob.arrayBuffer()));
+      seen.push(await print(f.blob));
+    } catch { /* 写真として読めないファイルは比べる相手にしない */ }
+  }
   const { all, todo } = splitPhotos(c.messages, ids);
   let ok = 0, same = 0, ng = 0;
   for (const m of todo) {
     const now = Date.now();
-    if (anyKept(await downloads.search({ url: m.imageUrl }).catch(() => []))) { ids[m.id] = now; same++; await keep(); continue; }
-    let sha = '', mime = '';
+    let sha = '', look = '', blob = null;
     try {
       const res = await get(m.imageUrl, { credentials: 'include' });
       if (!res.ok) throw new Error(String(res.status));
-      const blob = await res.blob();
-      mime = blob.type;
+      blob = await res.blob();
       sha = await fingerprint(await blob.arrayBuffer());
+      look = await print(blob);
     } catch { ng++; continue; }
-    if (isSavedHash(sha, hashes)) { ids[m.id] = now; same++; await keep(); continue; }
-    const named = await downloads.search({ filenameRegex: '_' + sha.slice(0, SHA_IN_NAME) + '\\.[A-Za-z]+$' }).catch(() => []);
-    if (anyKept(named)) { ids[m.id] = now; hashes[sha] = now; same++; await keep(); continue; }
-    const id = await downloads.download({ url: m.imageUrl, filename: photoFileName(c.them, m, sha, mime), conflictAction: 'overwrite' }).catch(() => undefined);
-    if (id === undefined) { ng++; continue; }
-    ids[m.id] = now; hashes[sha] = now; ok++;
+    if (shas.has(sha) || sameLookIn(look, seen)) { ids[m.id] = now; same++; await keep(); continue; }
+    try {
+      await folder.write(photoFileName(c.them, m, sha, blob.type), blob);
+    } catch { ng++; continue; }
+    ids[m.id] = now; hashes[sha] = now; looks[look] = now;
+    shas.add(sha); seen.push(look);
+    ok++;
     await keep();
   }
   return { all: all.length, ok, skipped: all.length - todo.length + same, ng };
