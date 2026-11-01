@@ -1,4 +1,4 @@
-// 写真の保存先のフォルダ。本人が1回選ぶと覚えておき、中の写真を読んで、そこへ書く（保存済みかどうかの正本がフォルダになる）。
+// 写真の保存先のフォルダ（全員の写真をまとめる1つのフォルダ。選ぶのは設定の画面）。本人が1回選ぶと覚えておき、中の写真を読んで、そこへ書く（保存済みかどうかの正本がフォルダになる）。
 //   フォルダの選択は Chrome の窓で本人が行う。覚えた先への読み書きの許可は Chrome が管理する（ブラウザを開き直すと聞き直されることがある）。
 
 const DB = 'reply-helper-folder', STORE = 'folders', KEY = 'photos';
@@ -23,9 +23,13 @@ export async function savedFolder() {
   });
 }
 
-/** 保存先を選んでもらい、覚える（押した操作の続きで呼ぶ） */
-export async function chooseFolder() {
-  const dir = await showDirectoryPicker({ id: 'reply-helper-photos', mode: 'readwrite', startIn: 'desktop' });
+/** 保存先を選んでもらう（押した操作の続きで呼ぶ） */
+export function pickFolder() {
+  return showDirectoryPicker({ id: 'reply-helper-photos', mode: 'readwrite', startIn: 'desktop' });
+}
+
+/** 保存先を覚える */
+export async function keepFolder(dir) {
   const db = await open();
   await new Promise((ok, ng) => {
     const tx = db.transaction(STORE, 'readwrite');
@@ -33,7 +37,12 @@ export async function chooseFolder() {
     tx.oncomplete = () => ok();
     tx.onerror = () => ng(tx.error);
   });
-  return dir;
+}
+
+/** 写真が直接入っているフォルダか（＝相手ごとのフォルダ。保存先には、その1つ上のまとめのフォルダを選ぶ） */
+export async function holdsPhotos(dir) {
+  for await (const [name, h] of dir.entries()) if (h.kind === 'file' && IMAGE.test(name)) return true;
+  return false;
 }
 
 /** 読み書きの許可があるか。無ければ聞く（押した操作の続きで呼ぶ） */
@@ -49,9 +58,9 @@ export function folderOf(root) {
       const out = [];
       for await (const [name, h] of root.entries()) {
         if (h.kind === 'file') {
-          if (IMAGE.test(name)) out.push({ name, blob: await h.getFile() });
+          if (IMAGE.test(name)) out.push({ name, blob: await h.getFile(), remove: () => root.removeEntry(name) });
         } else {
-          for await (const [inner, f] of h.entries()) if (f.kind === 'file' && IMAGE.test(inner)) out.push({ name: `${name}/${inner}`, blob: await f.getFile() });
+          for await (const [inner, f] of h.entries()) if (f.kind === 'file' && IMAGE.test(inner)) out.push({ name: `${name}/${inner}`, blob: await f.getFile(), remove: () => h.removeEntry(inner) });
         }
       }
       return out;

@@ -5,7 +5,7 @@ import { parseAnswer, NEEDS_CHECK } from '../src/lib/parse.js';
 import { ask, AiError, PROVIDERS } from '../src/lib/providers.js';
 import { piled, weLast, shop, apiMessages, apiChats, BOT, CHAT } from './fixtures.mjs';
 import { parsePath, toMessages, chatInfo, imageUrl, waitingChats } from '../src/lib/linechat.js';
-import { safeName, photoFileName, extFor, savePhotos, lookFromGray, lookDistance, sameLookIn } from '../src/lib/photos.js';
+import { safeName, photoFileName, extFor, savePhotos, lookFromGray, lookDistance, sameLook, largeUrl } from '../src/lib/photos.js';
 import { folderOf } from '../src/lib/folder.js';
 import { testPanel } from './panel.mjs';
 
@@ -180,47 +180,60 @@ const lookA = lookFromGray(grad((x, y) => (x * 7 + y * 13) % 11)), lookB = lookF
 t('見た目の印は16文字', lookA.length === 16 && /^[0-9a-f]+$/.test(lookA), lookA);
 t('同じ印の違いは0', lookDistance(lookA, lookA) === 0);
 t('違いの数を数える', lookDistance('0000000000000000', '000000000000000f') === 4 && lookDistance('0000000000000000', 'ffffffffffffffff') === 64);
-t('7つ違いは同じ写真・14違いは別の写真（実測の境目）', sameLookIn('000000000000007f', ['0000000000000000']) && !sameLookIn('0000000000003fff', ['0000000000000000']));
+t('7つ違いは同じ写真・14違いは別の写真（実測の境目）', sameLook('000000000000007f', '0000000000000000') && !sameLook('0000000000003fff', '0000000000000000'));
+t('大きい写真の住所は末尾の /preview を外す', largeUrl('https://x/bot/U/h==/preview') === 'https://x/bot/U/h==');
 t('別の絵は印が離れる', lookDistance(lookA, lookB) > 8, lookDistance(lookA, lookB));
-// 部品を差し替えて、保存の流れをまるごと確かめる（写真の中身の文字＝「絵の名前|大きさ」。絵の名前が同じ＝同じ写真を別の大きさで返した形）
+// 部品を差し替えて、保存の流れをまるごと確かめる（写真の中身の文字＝「絵の名前|画素数」。絵の名前が同じ＝同じ写真）
 const PICS = { a: '0000000000000000', a2: '000000000000003f', b: 'ffffffffffffffff', c: 'f0f0f0f0f0f0f0f0' };
 const fakePic = (s) => ({ type: 'image/jpeg', text: s, arrayBuffer: async () => new TextEncoder().encode(s).buffer });
 function fakeRoom({ files = {}, net = {} } = {}) {
   const disk = new Map(Object.entries(files));
   return {
     disk,
-    print: async (blob) => { if (blob.text.startsWith('!')) throw new Error('絵ではない'); return PICS[blob.text.split('|')[0]]; },
-    folder: { list: async () => [...disk].map(([name, s]) => ({ name, blob: fakePic(s) })), write: async (place, blob) => { disk.set(place, blob.text); } },
-    get: async (url) => {
+    asked: [],
+    print: async (blob) => { if (blob.text.startsWith('!')) throw new Error('絵ではない'); const [k, n] = blob.text.split('|'); return { look: PICS[k], pixels: Number(n) }; },
+    folder: { list: async () => [...disk].map(([name, s]) => ({ name, blob: fakePic(s), remove: async () => { disk.delete(name); } })), write: async (place, blob) => { disk.set(place, blob.text); } },
+    async get(url) {
+      this.asked.push(url);
       const key = url.split('/').pop();
       if (!(key in net)) return { ok: false, status: 404 };
       return { ok: true, blob: async () => fakePic(net[key]) };
     },
   };
 }
-const pm = (id, file) => ph(id, '2026-10-27T09:00:00+09:00', file);
+const pm = (id, file) => ph(id, '2026-10-27T09:00:00+09:00', file + '/preview');
+const room = (fc) => ({ folder: fc.folder, print: fc.print, get: (u) => fc.get(u) });
 {
-  // 実害の再現：フォルダに 384px の写真。LINE が同じ写真を 256px で返す＋記録も履歴も無い
-  const fc = fakeRoom({ files: { '原/2026-10-13_1034_42464444.jpg': 'a|384', '原/2026-10-25_1255_80807599.jpg': 'b|384' }, net: { f1: 'a|256', f2: 'b|384', f3: 'c|384' } });
-  const r = await savePhotos({ them: '原', messages: [pm('1', 'f1'), pm('2', 'f2'), pm('3', 'f3')] }, fc);
-  t('フォルダにある写真は、大きさが違っても・記録が無くても保存しない', fc.disk.size === 3 && r.ok === 1 && r.skipped === 2, { r, disk: [...fc.disk.keys()] });
-  const r2 = await savePhotos({ them: '原', messages: [pm('1', 'f1'), pm('2', 'f2'), pm('3', 'f3')] }, fc);
+  // フォルダに同じ大きさの写真があれば飛ばす
+  const fc = fakeRoom({ files: { '原/x.jpg': 'a|2000', '原/y.jpg': 'b|2000' }, net: { f1: 'a|2000', f2: 'b|2000', f3: 'c|2000' } });
+  const r = await savePhotos({ them: '原', messages: [pm('1', 'f1'), pm('2', 'f2'), pm('3', 'f3')] }, room(fc));
+  t('フォルダにある写真は保存しない・新しい写真だけ保存', fc.disk.size === 3 && r.ok === 1 && r.skipped === 2, { r, disk: [...fc.disk.keys()] });
+  t('縮小版の住所には取りに行かない', fc.asked.every((u) => !u.endsWith('/preview')), fc.asked);
+  const r2 = await savePhotos({ them: '原', messages: [pm('1', 'f1'), pm('2', 'f2'), pm('3', 'f3')] }, room(fc));
   t('もう一度押しても増えない', fc.disk.size === 3 && r2.ok === 0 && r2.skipped === 3, r2);
-  const r3 = await savePhotos({ them: '原さん（教室）', messages: [pm('8', 'f3')] }, fc);
+  const r3 = await savePhotos({ them: '原さん（教室）', messages: [pm('8', 'f3')] }, room(fc));
   t('相手の名前が変わっても、フォルダにあれば保存しない', fc.disk.size === 3 && r3.ok === 0, r3);
-  fc.disk.delete('原/2026-10-13_1034_42464444.jpg');
-  const r4 = await savePhotos({ them: '原', messages: [pm('1', 'f1'), pm('2', 'f2'), pm('3', 'f3')] }, fc);
+  fc.disk.delete('原/x.jpg');
+  const r4 = await savePhotos({ them: '原', messages: [pm('1', 'f1'), pm('2', 'f2'), pm('3', 'f3')] }, room(fc));
   t('フォルダから消した写真は、押せばまた保存する（1枚だけ）', fc.disk.size === 3 && r4.ok === 1 && r4.skipped === 2, { r4, disk: [...fc.disk.keys()] });
 }
 {
-  const fc = fakeRoom({ net: { x1: 'a|384', x2: 'a|256', x3: 'a2|256', y: 'b|384' } });
-  const r = await savePhotos({ them: '原', messages: [pm('1', 'x1'), pm('2', 'x2'), pm('3', 'x3'), pm('4', 'y')] }, fc);
-  t('同じ写真が別の大きさ・別のメッセージで届いても1枚だけ', fc.disk.size === 2 && r.ok === 2 && r.skipped === 2, { r, disk: [...fc.disk.keys()] });
+  // フォルダに小さい写真が残っている（前の保存の縮小版）
+  const fc = fakeRoom({ files: { '原/small.jpg': 'a|500', '原/small2.jpg': 'a2|300', '原/big.jpg': 'b|2000' }, net: { f1: 'a|2000', f2: 'b|2000' } });
+  const r = await savePhotos({ them: '原', messages: [pm('1', 'f1'), pm('2', 'f2')] }, room(fc));
+  t('同じ写真の小さい物は、大きい写真に置き換える', fc.disk.size === 2 && r.bigger === 1 && r.skipped === 1 && !fc.disk.has('原/small.jpg') && !fc.disk.has('原/small2.jpg') && [...fc.disk.values()].every((v) => v.endsWith('|2000')), { r, disk: [...fc.disk] });
+  const r2 = await savePhotos({ them: '原', messages: [pm('1', 'f1'), pm('2', 'f2')] }, room(fc));
+  t('置き換えたあと押しても増えない', fc.disk.size === 2 && r2.bigger === 0 && r2.ok === 0, r2);
 }
 {
-  const fc = fakeRoom({ files: { '原/こわれた.jpg': '!x' }, net: { ok: 'c|384', bad: '!y' } });
-  const r = await savePhotos({ them: '原', messages: [pm('1', 'ok'), pm('2', 'bad'), pm('3', 'nai')] }, fc);
-  t('見分けられない写真は保存しない・フォルダの読めないファイルは無視', fc.disk.size === 2 && r.ok === 1 && r.ng === 2, r);
+  const fc = fakeRoom({ net: { x1: 'a|2000', x2: 'a2|2000', y: 'b|2000' } });
+  const r = await savePhotos({ them: '原', messages: [pm('1', 'x1'), pm('2', 'x2'), pm('4', 'y')] }, room(fc));
+  t('同じ写真が別のメッセージで届いても1枚だけ', fc.disk.size === 2 && r.ok === 2 && r.skipped === 1, { r, disk: [...fc.disk.keys()] });
+}
+{
+  const fc = fakeRoom({ files: { '原/こわれた.jpg': '!x', '原/small.jpg': 'b|500' }, net: { ok: 'c|2000', bad: '!y' } });
+  const r = await savePhotos({ them: '原', messages: [pm('1', 'ok'), pm('2', 'bad'), pm('3', 'nai')] }, room(fc));
+  t('見分けられない写真は保存しない・大きい写真が取れない写真は縮小版で代用しない', fc.disk.size === 3 && r.ok === 1 && r.ng === 2, r);
 }
 // 保存先のフォルダの書き方（部品を差し替えて）
 function fakeDir(name, out, base = '') {
