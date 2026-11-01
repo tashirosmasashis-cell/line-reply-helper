@@ -89,12 +89,12 @@ export const largeUrl = (url) => String(url).replace(/\/preview$/, '');
 
 /**
  * 写真を保存する（同じ写真は絶対に二重に保存しない・大きい写真だけを保存する）。部品は渡してもらう（試験で差し替えられるように）
- *   folder＝保存先（list と write・lib/folder.js）／get＝写真を取り出す（fetch）／print＝見た目の印
+ *   folder＝保存先（list と write・lib/folder.js）／get＝写真を取り出す（fetch）／print＝見た目の印／progress＝進み具合（何枚目・全部で何枚）
  *   ① 保存先のフォルダの写真をすべて読み、中身の指紋と見た目の印を取る
  *   ② 大きい写真を取り出し、中身か見た目がフォルダの写真と同じなら飛ばす（別のメッセージ・別の名前でも）
  *   見分けられない写真は保存しない。別の記録は持たない＝フォルダから消した写真は、押せばまた保存する
  */
-export async function savePhotos(c, { folder, get, print = lookPrint }) {
+export async function savePhotos(c, { folder, get, print = lookPrint, progress = () => {} }) {
   const shas = new Set();
   const seen = [];
   for (const f of await folder.list()) {
@@ -105,7 +105,8 @@ export async function savePhotos(c, { folder, get, print = lookPrint }) {
   }
   const all = (c.messages || []).filter((m) => m.kind === 'image' && m.imageUrl);
   let ok = 0, same = 0, ng = 0;
-  for (const m of all) {
+  for (const [i, m] of all.entries()) {
+    progress(i + 1, all.length);
     let sha = '', look = '', blob = null;
     try {
       const res = await get(largeUrl(m.imageUrl), { credentials: 'include' });

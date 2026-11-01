@@ -218,6 +218,12 @@ const room = (fc) => ({ folder: fc.folder, print: fc.print, get: (u) => fc.get(u
   t('フォルダから消した写真は、押せばまた保存する（1枚だけ）', fc.disk.size === 3 && r4.ok === 1 && r4.skipped === 2, { r4, disk: [...fc.disk.keys()] });
 }
 {
+  const fc = fakeRoom({ net: { n1: 'a|2000', n2: 'b|2000' } });
+  const steps = [];
+  await savePhotos({ them: '原', messages: [pm('1', 'n1'), pm('2', 'n2')] }, { ...room(fc), progress: (n, total) => steps.push(n + '/' + total) });
+  t('保存の進み具合を1枚ごとに知らせる', steps.join() === '1/2,2/2', steps);
+}
+{
   const fc = fakeRoom({ net: { x1: 'a|2000', x2: 'a2|2000', y: 'b|2000' } });
   const r = await savePhotos({ them: '原', messages: [pm('1', 'x1'), pm('2', 'x2'), pm('4', 'y')] }, room(fc));
   t('同じ写真が別のメッセージで届いても1枚だけ', fc.disk.size === 2 && r.ok === 2 && r.skipped === 1, { r, disk: [...fc.disk.keys()] });

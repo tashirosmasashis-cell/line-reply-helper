@@ -255,15 +255,20 @@ $('savePhotos').addEventListener('click', async () => {
     await navigator.locks.request('lrh-save-photos', () => saveNow(convo, dir));
   } catch (e) {
     say('写真を保存できませんでした：' + (e.message || e), 'error');
-  } finally { savingPhotos = false; $('savePhotos').disabled = false; }
+  } finally { savingPhotos = false; $('savePhotos').disabled = false; $('savePhotos').textContent = '写真も保存'; }
 });
+
+// 保存の途中の様子を、押したボタンと案内の両方に出す（終わるまで何も変わらないと、動いているか分からない）
+function saving(text) { $('savePhotos').textContent = text; say(text); }
 
 async function saveNow(c, dir) {
   const where = `「${dir.name}\\${safeName(c.them)}」`;
   // 保存のときは会話を一番古い所まで読む（ふだんの読み取りは新しい分だけ）。読むだけなので既読は付かない
+  saving('会話を読んでいます…');
   const whole = await toPage({ type: 'read', chatId: c.chatKey.split('/').pop(), all: true });
   if (!whole?.ok) { say(whole?.error || '会話を読めませんでした。', 'error'); return; }
-  const r = await savePhotos({ them: c.them, messages: whole.convo.messages }, { folder: folderOf(dir), get: (u, o) => fetch(u, o) });
+  saving('保存先の写真を確かめています…');
+  const r = await savePhotos({ them: c.them, messages: whole.convo.messages }, { folder: folderOf(dir), get: (u, o) => fetch(u, o), progress: (n, total) => saving(`保存しています ${n} / ${total}`) });
   if (r.all && r.skipped === r.all) { say(`写真 ${r.all} 枚は、すべて保存済みです（${where}）。同じ写真は二度と保存しません。`, 'ok'); return; }
   say(`写真を ${r.ok} 枚、${where} に保存しました。${r.skipped ? `（保存済みと同じ写真 ${r.skipped} 枚は飛ばしました）` : ''}${r.ng ? `取り出せなかった写真が ${r.ng} 枚あります。もう一度押してください。` : ''}`, r.ng ? 'warn' : 'ok');
 }
