@@ -6,6 +6,7 @@ import { ask, AiError, PROVIDERS } from '../src/lib/providers.js';
 import { piled, weLast, shop, apiMessages, apiChats, BOT, CHAT } from './fixtures.mjs';
 import { parsePath, toMessages, chatInfo, imageUrl, waitingChats } from '../src/lib/linechat.js';
 import { safeName, photoFileName, extFor, savePhotos, lookFromGray, lookDistance, sameLookIn } from '../src/lib/photos.js';
+import { folderOf } from '../src/lib/folder.js';
 import { testPanel } from './panel.mjs';
 
 let ng = 0;
@@ -220,6 +221,22 @@ const pm = (id, file) => ph(id, '2026-10-27T09:00:00+09:00', file);
   const fc = fakeRoom({ files: { '原/こわれた.jpg': '!x' }, net: { ok: 'c|384', bad: '!y' } });
   const r = await savePhotos({ them: '原', messages: [pm('1', 'ok'), pm('2', 'bad'), pm('3', 'nai')] }, fc);
   t('見分けられない写真は保存しない・フォルダの読めないファイルは無視', fc.disk.size === 2 && r.ok === 1 && r.ng === 2, r);
+}
+// 保存先のフォルダの書き方（部品を差し替えて）
+function fakeDir(name, out, base = '') {
+  return {
+    name,
+    getDirectoryHandle: async (p) => fakeDir(p, out, base + p + '/'),
+    getFileHandle: async (f) => ({ createWritable: async () => ({ write: async () => { out.push(base + f); }, close: async () => {} }) }),
+  };
+}
+{
+  const out = [];
+  await folderOf(fakeDir('返信サポート', out)).write('樫元 奈那/a.jpg', {});
+  t('まとめのフォルダを選んだときは、相手ごとのフォルダに書く', out[0] === '樫元 奈那/a.jpg', out);
+  const out2 = [];
+  await folderOf(fakeDir('樫元 奈那', out2)).write('樫元 奈那/a.jpg', {});
+  t('相手のフォルダそのものを選んだときは、二重にせず直接書く', out2[0] === 'a.jpg', out2);
 }
 t('保存先の名前に使えない文字・「..」は置き換える', !safeName('../a:b').includes('..') && !/[\\/:*?"<>|]/.test(safeName('../a:b')), safeName('../a:b'));
 t('相手の名前が空なら「相手」', safeName('') === '相手');

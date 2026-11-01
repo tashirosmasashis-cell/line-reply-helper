@@ -60,7 +60,8 @@ export function folderOf(root) {
       const parts = place.split('/');
       const file = parts.pop();
       let dir = root;
-      for (const p of parts) dir = await dir.getDirectoryHandle(p, { create: true });
+      // 保存先に相手のフォルダそのものを選んだときは、その中へ直接書く（同じ名前のフォルダを中に作らない）
+      for (const p of parts) if (p !== root.name) dir = await dir.getDirectoryHandle(p, { create: true });
       const w = await (await dir.getFileHandle(file, { create: true })).createWritable();
       await w.write(blob);
       await w.close();
