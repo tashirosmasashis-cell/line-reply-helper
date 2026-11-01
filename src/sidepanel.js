@@ -56,7 +56,6 @@ async function load(target = pickedId) {
   if (!r?.ok) { convo = null; say(r?.error || '会話を読めませんでした（管理画面が変わった可能性があります）。', 'error'); return false; }
   if (r.convo.isGroup) { convo = null; say('いまは1対1の会話だけに対応しています。', 'warn'); return false; }
   const s = await settings();
-  const { savedPhotos = {} } = await chrome.storage.local.get('savedPhotos');
   if (version !== loadVersion) return false;
   convo = { ...r.convo, messages: tidy(r.convo.messages) };
   convo.unreadSelection = unreadOnly(r.convo.messages, r.convo.unread, r.convo.unreadComplete === true);
@@ -73,8 +72,7 @@ async function load(target = pickedId) {
   $('memoBox').open = !!$('memo').value;   // この人への話し方が決めてあれば、開いて見せる
   const photos = convo.messages.filter((m) => m.kind === 'image' && m.imageUrl);
   $('photos').hidden = !photos.length;
-  const savedN = photos.filter((m) => savedPhotos[m.id]).length;
-  $('photoNote').textContent = `この会話に写真が ${photos.length} 枚あります${savedN ? `（保存済み ${savedN} 枚）` : ''}。コピーには写真が入らないので、AI に見せたいときは保存して添えてください。`;
+  $('photoNote').textContent = `最近の会話に写真が ${photos.length} 枚あります。コピーには写真が入らないので、AI に見せたいときは保存して添えてください。`;
   return true;
 }
 
@@ -270,7 +268,10 @@ $('photoFolder').addEventListener('click', async () => {
 
 async function saveNow(c, dir) {
   const where = `「${dir.name}\\${safeName(c.them)}」`;
-  const r = await savePhotos(c, { storage: chrome.storage.local, folder: folderOf(dir), get: (u, o) => fetch(u, o) });
+  // 保存のときは会話を一番古い所まで読む（ふだんの読み取りは新しい分だけ）。読むだけなので既読は付かない
+  const whole = await toPage({ type: 'read', chatId: c.chatKey.split('/').pop(), all: true });
+  if (!whole?.ok) { say(whole?.error || '会話を読めませんでした。', 'error'); return; }
+  const r = await savePhotos({ them: c.them, messages: whole.convo.messages }, { folder: folderOf(dir), get: (u, o) => fetch(u, o) });
   if (r.all && r.skipped === r.all) { say(`写真 ${r.all} 枚は、すべて保存済みです（${where}）。同じ写真は二度と保存しません。`, 'ok'); return; }
   say(`写真を ${r.ok} 枚、${where} に保存しました。${r.skipped ? `（保存済みと同じ写真 ${r.skipped} 枚は飛ばしました）` : ''}${r.ng ? `取り出せなかった写真が ${r.ng} 枚あります。もう一度押してください（保存済みの写真は飛ばします）。` : ''}`, r.ng ? 'warn' : 'ok');
 }

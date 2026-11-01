@@ -5,7 +5,7 @@ import { parseAnswer, NEEDS_CHECK } from '../src/lib/parse.js';
 import { ask, AiError, PROVIDERS } from '../src/lib/providers.js';
 import { piled, weLast, shop, apiMessages, apiChats, BOT, CHAT } from './fixtures.mjs';
 import { parsePath, toMessages, chatInfo, imageUrl, waitingChats } from '../src/lib/linechat.js';
-import { safeName, photoFileName, splitPhotos, pruneSaved, extFor, savePhotos, lookFromGray, lookDistance, sameLookIn } from '../src/lib/photos.js';
+import { safeName, photoFileName, extFor, savePhotos, lookFromGray, lookDistance, sameLookIn } from '../src/lib/photos.js';
 import { testPanel } from './panel.mjs';
 
 let ng = 0;
@@ -173,9 +173,6 @@ const ph = (id, at, file) => ({ id, at, kind: 'image', imageUrl: 'https://chat-c
 const p1 = ph('600000000000000001', '2026-10-24T10:30:00+09:00'), p2 = ph('600000000000000002', '2026-10-24T10:31:00+09:00');
 t('写真の名前は相手ごとのフォルダ＋日時＋指紋の頭12文字', photoFileName('原', p2, 'abcdef0123456789', 'image/png') === '原/2026-10-24_1031_abcdef012345.png', photoFileName('原', p2, 'abcdef0123456789', 'image/png'));
 t('種類が分からなければ jpg', extFor('') === 'jpg' && extFor('image/jpeg') === 'jpg' && extFor('image/webp') === 'webp');
-const sp = splitPhotos([p1, p2], { [p1.id]: 1 });
-t('番号で保存済みの写真は飛ばす', sp.todo.length === 1 && sp.todo[0].id === p2.id && sp.skipped.length === 1, sp);
-t('写真でないものは数えない', splitPhotos([{ id: 'a', kind: 'text', text: 'x' }, { id: 'b', kind: 'image' }], {}).all.length === 0);
 // 見た目の印
 const grad = (f) => Array.from({ length: 72 }, (_, i) => f(i % 9, Math.floor(i / 9)));
 const lookA = lookFromGray(grad((x, y) => (x * 7 + y * 13) % 11)), lookB = lookFromGray(grad((x, y) => (x * x + y * 5) % 7));
@@ -188,12 +185,10 @@ t('別の絵は印が離れる', lookDistance(lookA, lookB) > 8, lookDistance(lo
 const PICS = { a: '0000000000000000', a2: '000000000000003f', b: 'ffffffffffffffff', c: 'f0f0f0f0f0f0f0f0' };
 const fakePic = (s) => ({ type: 'image/jpeg', text: s, arrayBuffer: async () => new TextEncoder().encode(s).buffer });
 function fakeRoom({ files = {}, net = {} } = {}) {
-  const store = {};
   const disk = new Map(Object.entries(files));
   return {
-    disk, store,
+    disk,
     print: async (blob) => { if (blob.text.startsWith('!')) throw new Error('絵ではない'); return PICS[blob.text.split('|')[0]]; },
-    storage: { get: async (keys) => Object.fromEntries(keys.filter((k) => k in store).map((k) => [k, JSON.parse(JSON.stringify(store[k]))])), set: async (o) => Object.assign(store, JSON.parse(JSON.stringify(o))) },
     folder: { list: async () => [...disk].map(([name, s]) => ({ name, blob: fakePic(s) })), write: async (place, blob) => { disk.set(place, blob.text); } },
     get: async (url) => {
       const key = url.split('/').pop();
@@ -210,9 +205,11 @@ const pm = (id, file) => ph(id, '2026-10-27T09:00:00+09:00', file);
   t('フォルダにある写真は、大きさが違っても・記録が無くても保存しない', fc.disk.size === 3 && r.ok === 1 && r.skipped === 2, { r, disk: [...fc.disk.keys()] });
   const r2 = await savePhotos({ them: '原', messages: [pm('1', 'f1'), pm('2', 'f2'), pm('3', 'f3')] }, fc);
   t('もう一度押しても増えない', fc.disk.size === 3 && r2.ok === 0 && r2.skipped === 3, r2);
-  for (const k of Object.keys(fc.store)) delete fc.store[k];
   const r3 = await savePhotos({ them: '原さん（教室）', messages: [pm('8', 'f3')] }, fc);
-  t('記録を消して相手の名前が変わっても、フォルダにあれば保存しない', fc.disk.size === 3 && r3.ok === 0, r3);
+  t('相手の名前が変わっても、フォルダにあれば保存しない', fc.disk.size === 3 && r3.ok === 0, r3);
+  fc.disk.delete('原/2026-10-13_1034_42464444.jpg');
+  const r4 = await savePhotos({ them: '原', messages: [pm('1', 'f1'), pm('2', 'f2'), pm('3', 'f3')] }, fc);
+  t('フォルダから消した写真は、押せばまた保存する（1枚だけ）', fc.disk.size === 3 && r4.ok === 1 && r4.skipped === 2, { r4, disk: [...fc.disk.keys()] });
 }
 {
   const fc = fakeRoom({ net: { x1: 'a|384', x2: 'a|256', x3: 'a2|256', y: 'b|384' } });
@@ -226,7 +223,6 @@ const pm = (id, file) => ph(id, '2026-10-27T09:00:00+09:00', file);
 }
 t('保存先の名前に使えない文字・「..」は置き換える', !safeName('../a:b').includes('..') && !/[\\/:*?"<>|]/.test(safeName('../a:b')), safeName('../a:b'));
 t('相手の名前が空なら「相手」', safeName('') === '相手');
-t('保存済みの記録は新しい分だけ残す', Object.keys(pruneSaved({ a: 1, b: 3, c: 2 }, 2)).sort().join() === 'b,c');
 
 // 未読と未返信は異なる。こちらの既読の時刻だけで選ぶ（相手の既読では選ばない）。
 const unreadSample = [

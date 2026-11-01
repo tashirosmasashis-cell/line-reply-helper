@@ -1,6 +1,7 @@
 // 写真の保存：同じ写真を絶対に二重に保存しないための決まり（2026-11-01 作り直し）。
 //   ・正本は保存先のフォルダの中身。押すたびにフォルダの写真を読み、そこに無い写真だけを書く
 //     （拡張の記録とダウンロードの履歴だけを見ていたときは、Chrome を変えた・履歴を消した・別の版で保存した写真を知らず、全部保存し直していた）
+//     フォルダのほかに記録は持たない＝消した写真は押せば戻る（2026-11-01 本人が2枚消して試した）
 //   ・見分けるのは写真の見た目（縮めた絵の明暗の並び）。LINE は同じ写真を 384px でも 256px でも返すので、中身の指紋では別物に見える
 //     （実測 2026-11-01：同じ写真どうしの差は 0〜7、別の写真は 14 以上。64 のうち SAME_LOOK 以下を同じと見る）
 //   ・見た目を比べられない写真は保存しない（見分けられない物を書くと二重になりうる）
@@ -81,45 +82,25 @@ export function lookDistance(a, b) {
 /** 見た目の印の一覧の中に、同じ写真があるか */
 export const sameLookIn = (look, looks) => looks.some((x) => lookDistance(look, x) <= SAME_LOOK);
 
-/** 写真のメッセージと、もう保存済みと分かっている物（メッセージの番号で）に分ける。番号で分からない物は、中身を見て決める */
-export function splitPhotos(messages, savedIds) {
-  const all = (messages || []).filter((m) => m.kind === 'image' && m.imageUrl);
-  const done = savedIds || {};
-  return { all, todo: all.filter((m) => !done[m.id]), skipped: all.filter((m) => done[m.id]) };
-}
-
-/** 記録を新しい2万件までにする（増え続けないように。2万件でも Chrome の中の置き場の上限には遠い） */
-export function pruneSaved(saved, limit = 20000) {
-  const rows = Object.entries(saved || {}).sort((a, b) => b[1] - a[1]).slice(0, limit);
-  return Object.fromEntries(rows);
-}
-
 /**
  * 写真を保存する（同じ写真は絶対に二重に保存しない）。部品は渡してもらう（試験で差し替えられるように）
- *   storage＝chrome.storage.local／folder＝保存先（list と write・lib/folder.js）／get＝写真を取り出す（fetch）／print＝見た目の印
+ *   folder＝保存先（list と write・lib/folder.js）／get＝写真を取り出す（fetch）／print＝見た目の印
  *   ① 保存先のフォルダの写真をすべて読み、中身の指紋と見た目の印を取る
- *   ② メッセージの番号で保存済み → 飛ばす
- *   ③ 中身の指紋か見た目が、フォルダの写真・保存の記録と同じ → 飛ばす（別の大きさ・別のメッセージ・別の名前でも）
- *   見分けられない写真は保存しない。記録は1枚ごとに書く（途中で窓を閉じても、保存した分は覚えている）
+ *   ② 中身の指紋か見た目が、フォルダの写真と同じ → 飛ばす（別の大きさ・別のメッセージ・別の名前でも）
+ *   見分けられない写真は保存しない。別の記録は持たない＝フォルダから消した写真は、押せばまた保存する
  */
-export async function savePhotos(c, { storage, folder, get, print = lookPrint }) {
-  const rec = await storage.get(['savedPhotos', 'savedPhotoHashes', 'savedPhotoLooks']);
-  const ids = rec.savedPhotos || {};
-  const hashes = rec.savedPhotoHashes || {};
-  const looks = rec.savedPhotoLooks || {};
-  const keep = () => storage.set({ savedPhotos: pruneSaved(ids), savedPhotoHashes: pruneSaved(hashes), savedPhotoLooks: pruneSaved(looks) });
-  const shas = new Set(Object.keys(hashes));
-  const seen = Object.keys(looks);
+export async function savePhotos(c, { folder, get, print = lookPrint }) {
+  const shas = new Set();
+  const seen = [];
   for (const f of await folder.list()) {
     try {
       shas.add(await fingerprint(await f.blob.arrayBuffer()));
       seen.push(await print(f.blob));
     } catch { /* 写真として読めないファイルは比べる相手にしない */ }
   }
-  const { all, todo } = splitPhotos(c.messages, ids);
+  const all = (c.messages || []).filter((m) => m.kind === 'image' && m.imageUrl);
   let ok = 0, same = 0, ng = 0;
-  for (const m of todo) {
-    const now = Date.now();
+  for (const m of all) {
     let sha = '', look = '', blob = null;
     try {
       const res = await get(m.imageUrl, { credentials: 'include' });
@@ -128,14 +109,13 @@ export async function savePhotos(c, { storage, folder, get, print = lookPrint })
       sha = await fingerprint(await blob.arrayBuffer());
       look = await print(blob);
     } catch { ng++; continue; }
-    if (shas.has(sha) || sameLookIn(look, seen)) { ids[m.id] = now; same++; await keep(); continue; }
+    if (shas.has(sha) || sameLookIn(look, seen)) { same++; continue; }
     try {
       await folder.write(photoFileName(c.them, m, sha, blob.type), blob);
     } catch { ng++; continue; }
-    ids[m.id] = now; hashes[sha] = now; looks[look] = now;
-    shas.add(sha); seen.push(look);
+    shas.add(sha);
+    seen.push(look);
     ok++;
-    await keep();
   }
-  return { all: all.length, ok, skipped: all.length - todo.length + same, ng };
+  return { all: all.length, ok, skipped: same, ng };
 }

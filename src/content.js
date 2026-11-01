@@ -60,7 +60,7 @@
       return waitingChats(chats.list);
     },
     /** 会話を読む。chatId を渡せば、その会話を**開かずに**読む（既読にならない）。渡さなければ、いま開いている会話 */
-    async read(chatId) {
+    async read(chatId, all = false) {
       const { parsePath, toMessages, chatInfo } = await lib();
       const ids = chatId && reader.botId() ? { botId: reader.botId(), chatId } : parsePath(location.pathname);
       if (!ids) throw Object.assign(new Error('相手との会話を開くか、窓の「まだ返していない会話」から選んでください。'), { kind: 'nochat' });
@@ -78,7 +78,7 @@
       const unreadCovered = () => info.unread?.after !== null && info.unread?.after !== undefined
         && events.some((e) => e.type === 'message' && Number(e.timestamp) <= info.unread.after);
       // 通常は2ページ。未読が多いときだけ、未読の先頭まで追加で読む（既読にはしない）。
-      for (let page = 1; backward && page < 20 && (page === 1 || (info.unread?.read === false && !unreadCovered())); page++) {
+      for (let page = 1; backward && page < (all ? 500 : 20) && (all || page === 1 || (info.unread?.read === false && !unreadCovered())); page++) {   // all＝一番古い所まで（写真の保存）
         const older = await getJson(`${base}?backward=${encodeURIComponent(backward)}`).catch(() => null);
         if (!older || !Array.isArray(older.list)) break;
         events = older.list.concat(events);
@@ -141,7 +141,7 @@
 
   chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
     if (msg?.type === 'read') {
-      reader.read(msg.chatId).then((c) => reply({ ok: true, convo: c }))
+      reader.read(msg.chatId, msg.all).then((c) => reply({ ok: true, convo: c }))
         .catch((e) => reply({ ok: false, kind: e.kind || 'unreadable', error: e.message || String(e) }));
       return true;
     }
