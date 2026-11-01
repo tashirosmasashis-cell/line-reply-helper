@@ -1,8 +1,8 @@
 // 設定の画面：考える AI・鍵・モデル・自分の立場・相手ごとのメモ
 import { PROVIDERS } from './lib/providers.js';
-import { savedFolder, pickFolder, keepFolder, holdsPhotos } from './lib/folder.js';
+import { savedFolder, pickFolder, keepFolder } from './lib/folder.js';
 
-// 写真の保存先（全員の写真をまとめるフォルダ）。写真が直接入っているフォルダ＝相手ごとのフォルダは選ばせない
+// 写真の保存先（全員の写真をまとめるフォルダ）
 async function drawFolder() {
   const dir = await savedFolder();
   document.getElementById('photoFolderName').textContent = dir ? `いまの保存先：${dir.name}` : 'まだ選んでいません。';
@@ -11,7 +11,6 @@ document.getElementById('photoFolder').addEventListener('click', async () => {
   const note = document.getElementById('photoFolderNote');
   try {
     const dir = await pickFolder();
-    if (await holdsPhotos(dir)) { note.textContent = `「${dir.name}」には写真が直接入っています。相手ごとのフォルダではなく、その1つ上のまとめのフォルダを選んでください。`; return; }
     await keepFolder(dir);
     note.textContent = `保存先を「${dir.name}」にしました。`;
     await drawFolder();

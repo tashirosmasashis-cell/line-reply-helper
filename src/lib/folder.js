@@ -39,12 +39,6 @@ export async function keepFolder(dir) {
   });
 }
 
-/** 写真が直接入っているフォルダか（＝相手ごとのフォルダ。保存先には、その1つ上のまとめのフォルダを選ぶ） */
-export async function holdsPhotos(dir) {
-  for await (const [name, h] of dir.entries()) if (h.kind === 'file' && IMAGE.test(name)) return true;
-  return false;
-}
-
 /** 読み書きの許可があるか。無ければ聞く（押した操作の続きで呼ぶ） */
 export async function canWrite(dir) {
   if ((await dir.queryPermission({ mode: 'readwrite' })) === 'granted') return true;
@@ -58,9 +52,9 @@ export function folderOf(root) {
       const out = [];
       for await (const [name, h] of root.entries()) {
         if (h.kind === 'file') {
-          if (IMAGE.test(name)) out.push({ name, blob: await h.getFile(), remove: () => root.removeEntry(name) });
+          if (IMAGE.test(name)) out.push({ name, blob: await h.getFile() });
         } else {
-          for await (const [inner, f] of h.entries()) if (f.kind === 'file' && IMAGE.test(inner)) out.push({ name: `${name}/${inner}`, blob: await f.getFile(), remove: () => h.removeEntry(inner) });
+          for await (const [inner, f] of h.entries()) if (f.kind === 'file' && IMAGE.test(inner)) out.push({ name: `${name}/${inner}`, blob: await f.getFile() });
         }
       }
       return out;

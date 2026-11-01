@@ -6,7 +6,7 @@
 //     （実測 2026-11-01：同じ写真どうしの差は 0〜7、別の写真は 14 以上。64 のうち SAME_LOOK 以下を同じと見る）
 //   ・見た目を比べられない写真は保存しない（見分けられない物を書くと二重になりうる）
 //   ・保存するのは大きい写真（元の写真）だけ。LINE の縮小版（住所の末尾 /preview）は保存しない。取れなければ保存しない
-//     フォルダに同じ写真の小さい物があれば、大きい写真に置き換える（2026-11-01 本人「大きいサイズしかいりません」）
+//     （2026-11-01 本人「大きいサイズしかいりません」）
 
 /** 保存するフォルダの名前に使える形にする（相手の名前は相手が決められるため、使えない文字・「..」で始まる名前は置き換える） */
 export function safeName(them) {
@@ -51,10 +51,9 @@ export function lookFromGray(gray) {
   return hex;
 }
 
-/** 写真の見た目の印と画素数 */
+/** 写真の見た目の印 */
 export async function lookPrint(blob) {
   const bmp = await createImageBitmap(blob);
-  const pixels = bmp.width * bmp.height;
   // 一度 90×80 にして、10×10 ごとの平均で 9×8 にする（9×8 へ直接縮めると元の大きさで結果が変わり、同じ写真を別物と見た・2026-11-01 実物で確かめた）
   const canvas = new OffscreenCanvas(90, 80);
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -69,7 +68,7 @@ export async function lookPrint(blob) {
       gray[Math.floor(y / 10) * 9 + Math.floor(x / 10)] += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
     }
   }
-  return { look: lookFromGray(gray), pixels };
+  return lookFromGray(gray);
 }
 
 /** 見た目の印の違いの数（0〜64） */
@@ -90,10 +89,9 @@ export const largeUrl = (url) => String(url).replace(/\/preview$/, '');
 
 /**
  * 写真を保存する（同じ写真は絶対に二重に保存しない・大きい写真だけを保存する）。部品は渡してもらう（試験で差し替えられるように）
- *   folder＝保存先（list と write・lib/folder.js）／get＝写真を取り出す（fetch）／print＝見た目の印と画素数
+ *   folder＝保存先（list と write・lib/folder.js）／get＝写真を取り出す（fetch）／print＝見た目の印
  *   ① 保存先のフォルダの写真をすべて読み、中身の指紋と見た目の印を取る
- *   ② 大きい写真を取り出す。中身か見た目がフォルダの写真と同じなら飛ばす（別のメッセージ・別の名前でも）
- *   ③ 同じ写真の小さい物しかフォルダに無ければ、大きい写真を書いてから、小さい物を消す
+ *   ② 大きい写真を取り出し、中身か見た目がフォルダの写真と同じなら飛ばす（別のメッセージ・別の名前でも）
  *   見分けられない写真は保存しない。別の記録は持たない＝フォルダから消した写真は、押せばまた保存する
  */
 export async function savePhotos(c, { folder, get, print = lookPrint }) {
@@ -102,34 +100,27 @@ export async function savePhotos(c, { folder, get, print = lookPrint }) {
   for (const f of await folder.list()) {
     try {
       shas.add(await fingerprint(await f.blob.arrayBuffer()));
-      seen.push({ ...(await print(f.blob)), remove: f.remove });
+      seen.push(await print(f.blob));
     } catch { /* 写真として読めないファイルは比べる相手にしない */ }
   }
   const all = (c.messages || []).filter((m) => m.kind === 'image' && m.imageUrl);
-  let ok = 0, bigger = 0, same = 0, ng = 0;
+  let ok = 0, same = 0, ng = 0;
   for (const m of all) {
-    let sha = '', got = null, blob = null;
+    let sha = '', look = '', blob = null;
     try {
       const res = await get(largeUrl(m.imageUrl), { credentials: 'include' });
       if (!res.ok) throw new Error(String(res.status));
       blob = await res.blob();
       sha = await fingerprint(await blob.arrayBuffer());
-      got = await print(blob);
+      look = await print(blob);
     } catch { ng++; continue; }
-    if (shas.has(sha)) { same++; continue; }
-    const twins = seen.filter((x) => sameLook(got.look, x.look));
-    if (twins.some((x) => x.pixels >= got.pixels)) { same++; continue; }
+    if (shas.has(sha) || seen.some((x) => sameLook(look, x))) { same++; continue; }
     try {
       await folder.write(photoFileName(c.them, m, sha, blob.type), blob);
-      for (const x of twins) {
-        await x.remove();
-        seen.splice(seen.indexOf(x), 1);
-      }
     } catch { ng++; continue; }
     shas.add(sha);
-    seen.push({ ...got, remove: () => Promise.resolve() });
-    if (twins.length) bigger++;
-    else ok++;
+    seen.push(look);
+    ok++;
   }
-  return { all: all.length, ok, bigger, skipped: same, ng };
+  return { all: all.length, ok, skipped: same, ng };
 }

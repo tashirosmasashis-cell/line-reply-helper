@@ -4,7 +4,7 @@ import { buildPrompt } from './lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from './lib/parse.js';
 import { ask, PROVIDERS, AiError } from './lib/providers.js';
 import { safeName, savePhotos } from './lib/photos.js';
-import { savedFolder, canWrite, holdsPhotos, folderOf } from './lib/folder.js';
+import { savedFolder, canWrite, folderOf } from './lib/folder.js';
 
 const $ = (id) => document.getElementById(id);
 let convo = null;      // 読んだ会話 { chatKey, them, us, isGroup, messages }
@@ -246,12 +246,12 @@ $('savePhotos').addEventListener('click', async () => {
   $('savePhotos').disabled = true;
   try {
     const dir = await savedFolder();
-    if (dir && !(await canWrite(dir))) { say('フォルダを使う許可がありませんでした。もう一度押して、許可してください。', 'warn'); return; }
-    if (!dir || (await holdsPhotos(dir))) {
-      say('写真の保存先を設定で選んでください。全員の写真をまとめるフォルダを1つ選びます。', 'warn');
+    if (!dir) {
+      say('写真の保存先を設定で選んでください。', 'warn');
       chrome.runtime.openOptionsPage();
       return;
     }
+    if (!(await canWrite(dir))) { say('フォルダを使う許可がありませんでした。もう一度押して、許可してください。', 'warn'); return; }
     await navigator.locks.request('lrh-save-photos', () => saveNow(convo, dir));
   } catch (e) {
     say('写真を保存できませんでした：' + (e.message || e), 'error');
@@ -265,8 +265,7 @@ async function saveNow(c, dir) {
   if (!whole?.ok) { say(whole?.error || '会話を読めませんでした。', 'error'); return; }
   const r = await savePhotos({ them: c.them, messages: whole.convo.messages }, { folder: folderOf(dir), get: (u, o) => fetch(u, o) });
   if (r.all && r.skipped === r.all) { say(`写真 ${r.all} 枚は、すべて保存済みです（${where}）。同じ写真は二度と保存しません。`, 'ok'); return; }
-  const done = [r.ok ? `写真を ${r.ok} 枚保存しました` : '', r.bigger ? `小さい写真 ${r.bigger} 枚を大きい写真に置き換えました` : ''].filter(Boolean).join('。') || '保存する写真はありませんでした';
-  say(`${done}（${where}）。${r.skipped ? `保存済みと同じ写真 ${r.skipped} 枚は飛ばしました。` : ''}${r.ng ? `取り出せなかった写真が ${r.ng} 枚あります。もう一度押してください。` : ''}`, r.ng ? 'warn' : 'ok');
+  say(`写真を ${r.ok} 枚、${where} に保存しました。${r.skipped ? `（保存済みと同じ写真 ${r.skipped} 枚は飛ばしました）` : ''}${r.ng ? `取り出せなかった写真が ${r.ng} 枚あります。もう一度押してください。` : ''}`, r.ng ? 'warn' : 'ok');
 }
 
 // ---------- 開いたとき
