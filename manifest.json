@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "返信サポート by ずんだもんAI",
+  "name": "返信サポート by ずんだAI",
   "version": "0.1.10",
   "description": "LINE 公式アカウントの管理画面で使えます。これまでの会話をまるごと読み、まだ返していない相手のメッセージに漏れなく応える返信の案を作ります。送信は自分で押します。",
   "minimum_chrome_version": "116",
@@ -25,7 +25,7 @@
   },
   "options_page": "src/options.html",
   "action": {
-    "default_title": "返信サポート by ずんだもんAI"
+    "default_title": "返信サポート by ずんだAI"
   },
   "content_scripts": [
     {
