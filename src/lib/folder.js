@@ -2,7 +2,7 @@
 //   フォルダの選択は Chrome の窓で本人が行う。覚えた先への読み書きの許可は Chrome が管理する（ブラウザを開き直すと聞き直されることがある）。
 
 const DB = 'reply-helper-folder', STORE = 'folders', KEY = 'photos';
-const IMAGE = /\.(jpe?g|png|gif|webp|heic|heif)$/i;
+const ALLOWED_FILES = /\.(jpe?g|png|gif|webp|heic|heif|pdf)$/i;
 
 function open() {
   return new Promise((ok, ng) => {
@@ -52,9 +52,9 @@ export function folderOf(root) {
       const out = [];
       for await (const [name, h] of root.entries()) {
         if (h.kind === 'file') {
-          if (IMAGE.test(name)) out.push({ name, blob: await h.getFile() });
+          if (ALLOWED_FILES.test(name)) out.push({ name, blob: await h.getFile() });
         } else {
-          for await (const [inner, f] of h.entries()) if (f.kind === 'file' && IMAGE.test(inner)) out.push({ name: `${name}/${inner}`, blob: await f.getFile() });
+          for await (const [inner, f] of h.entries()) if (f.kind === 'file' && ALLOWED_FILES.test(inner)) out.push({ name: `${name}/${inner}`, blob: await f.getFile() });
         }
       }
       return out;

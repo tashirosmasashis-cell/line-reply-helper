@@ -49,7 +49,7 @@ export async function testPanel(t) {
       asked++; lastPrompt = opts.prompt;
       if (nextAsk) { const pending = nextAsk; nextAsk = null; return pending.promise; }
       return JSON.stringify({ points: [], best: 'Aへの返信', alternatives: [] });
-    }, safeName: (s) => s, savePhotos() {},
+    }, safeName: (s) => s, savePhotos() {}, isPdf: () => false,
   });
   vm.runInContext(source, context);
   const run = (code) => vm.runInContext(code, context);

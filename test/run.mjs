@@ -233,6 +233,23 @@ const room = (fc) => ({ folder: fc.folder, print: fc.print, get: (u) => fc.get(u
   const r = await savePhotos({ them: '原', messages: [pm('1', 'ok'), pm('2', 'bad'), pm('3', 'nai')] }, room(fc));
   t('見分けられない写真は保存しない・大きい写真が取れない写真は縮小版で代用しない', fc.disk.size === 2 && r.ok === 1 && r.ng === 2, r);
 }
+{
+  // PDFの保存と二重保存防止
+  const fc = fakeRoom({
+    files: { '原/2026-11-03_1900_既存.pdf': 'pdf-content-1' },
+    net: {
+      'pdf1': 'pdf-content-1',
+      'pdf2': 'pdf-content-2',
+    }
+  });
+  const pdfMsg1 = { id: 'p1', at: '2026-11-03T10:00:00Z', kind: 'file', fileName: '資料1.pdf', fileUrl: 'pdf1' };
+  const pdfMsg2 = { id: 'p2', at: '2026-11-03T10:05:00Z', kind: 'file', fileName: '資料2.pdf', fileUrl: 'pdf2' };
+  const r = await savePhotos({ them: '原', messages: [pdfMsg1, pdfMsg2] }, room(fc));
+  t('PDFも保存でき、保存済みと同じPDFは二重に保存しない', fc.disk.size === 2 && r.ok === 1 && r.skipped === 1, { r, disk: [...fc.disk.keys()] });
+  t('PDFの名前は日時＋元の名前＋指紋の頭（同じ名前の別のPDFを上書きしない）', [...fc.disk.keys()].some((k) => /^原\/2026-11-03_\d{4}_資料2_[0-9a-f]{8}\.pdf$/.test(k)), [...fc.disk.keys()]);
+  const r2 = await savePhotos({ them: '原', messages: [pdfMsg1, pdfMsg2, { id: 'x', at: pdfMsg1.at, kind: 'file', fileName: 'メモ.txt', fileUrl: 'txt' }] }, room(fc));
+  t('もう一度押しても増えない・PDF でないファイルは保存しない', fc.disk.size === 2 && r2.ok === 0 && r2.all === 2, r2);
+}
 // 保存先のフォルダの書き方（部品を差し替えて）
 function fakeDir(name, out, base = '') {
   return {

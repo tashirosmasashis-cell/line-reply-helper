@@ -3,7 +3,7 @@ import { tidy, unanswered, unreadOnly } from './lib/thread.js';
 import { buildPrompt } from './lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from './lib/parse.js';
 import { ask, PROVIDERS, AiError } from './lib/providers.js';
-import { safeName, savePhotos } from './lib/photos.js';
+import { safeName, savePhotos, isPdf } from './lib/photos.js';
 import { savedFolder, canWrite, folderOf } from './lib/folder.js';
 
 const $ = (id) => document.getElementById(id);
@@ -71,8 +71,9 @@ async function load(target = pickedId) {
   $('memo').value = previous?.chatKey === convo.chatKey ? editedMemo : s.memos[convo.them] || '';
   $('memoBox').open = !!$('memo').value;   // この人への話し方が決めてあれば、開いて見せる
   const photos = convo.messages.filter((m) => m.kind === 'image' && m.imageUrl);
-  $('photos').hidden = !photos.length;
-  $('photoNote').textContent = `最近の会話に写真が ${photos.length} 枚あります。コピーには写真が入らないので、AI に見せたいときは保存して添えてください。`;
+  const pdfs = convo.messages.filter(isPdf);
+  $('photos').hidden = !photos.length && !pdfs.length;
+  $('photoNote').textContent = `最近の会話に写真が ${photos.length} 枚${pdfs.length ? `、PDF が ${pdfs.length} 個` : ''}あります。コピーには写真が入らないので、AI に見せたいときは保存して添えてください。`;
   return true;
 }
 
@@ -254,8 +255,8 @@ $('savePhotos').addEventListener('click', async () => {
     if (!(await canWrite(dir))) { say('フォルダを使う許可がありませんでした。もう一度押して、許可してください。', 'warn'); return; }
     await navigator.locks.request('lrh-save-photos', () => saveNow(convo, dir));
   } catch (e) {
-    say('写真を保存できませんでした：' + (e.message || e), 'error');
-  } finally { savingPhotos = false; $('savePhotos').disabled = false; $('savePhotos').textContent = '写真も保存'; }
+    say('保存できませんでした：' + (e.message || e), 'error');
+  } finally { savingPhotos = false; $('savePhotos').disabled = false; $('savePhotos').textContent = '写真・PDFを保存'; }
 });
 
 // 保存の途中の様子を、押したボタンと案内の両方に出す（終わるまで何も変わらないと、動いているか分からない）
@@ -269,8 +270,8 @@ async function saveNow(c, dir) {
   if (!whole?.ok) { say(whole?.error || '会話を読めませんでした。', 'error'); return; }
   saving('保存先の写真を確かめています…');
   const r = await savePhotos({ them: c.them, messages: whole.convo.messages }, { folder: folderOf(dir), get: (u, o) => fetch(u, o), progress: (n, total) => saving(`保存しています ${n} / ${total}`) });
-  if (r.all && r.skipped === r.all) { say(`写真 ${r.all} 枚は、すべて保存済みです（${where}）。同じ写真は二度と保存しません。`, 'ok'); return; }
-  say(`写真を ${r.ok} 枚、${where} に保存しました。${r.skipped ? `（保存済みと同じ写真 ${r.skipped} 枚は飛ばしました）` : ''}${r.ng ? `取り出せなかった写真が ${r.ng} 枚あります。もう一度押してください。` : ''}`, r.ng ? 'warn' : 'ok');
+  if (r.all && r.skipped === r.all) { say(`写真と PDF の ${r.all} 件は、すべて保存済みです（${where}）。同じ物は二度と保存しません。`, 'ok'); return; }
+  say(`写真と PDF を ${r.ok} 件、${where} に保存しました。${r.skipped ? `（保存済みと同じ物 ${r.skipped} 件は飛ばしました）` : ''}${r.ng ? `取り出せなかった写真が ${r.ng} 枚あります。もう一度押してください。` : ''}`, r.ng ? 'warn' : 'ok');
 }
 
 // ---------- 開いたとき

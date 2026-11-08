@@ -7,6 +7,7 @@
 //   ・見た目を比べられない写真は保存しない（見分けられない物を書くと二重になりうる）
 //   ・保存するのは大きい写真（元の写真）だけ。LINE の縮小版（住所の末尾 /preview）は保存しない。取れなければ保存しない
 //     （2026-11-01 本人「大きいサイズしかいりません」）
+//   ・LINE で届いた PDF も同じフォルダに保存する。PDF は中身の指紋が同じなら飛ばす（2026-11-03）
 
 /** 保存するフォルダの名前に使える形にする（相手の名前は相手が決められるため、使えない文字・「..」で始まる名前は置き換える） */
 export function safeName(them) {
@@ -19,6 +20,14 @@ const pad = (n) => String(n).padStart(2, '0');
 export function extFor(mime) {
   const t = String(mime || '').toLowerCase().split(';')[0].trim();
   return { 'image/png': 'png', 'image/gif': 'gif', 'image/webp': 'webp', 'image/heic': 'heic', 'image/heif': 'heif' }[t] || 'jpg';
+}
+
+/** PDF の保存先のフォルダの中での場所（相手の名前/日時_元の名前_指紋.pdf）。同じ名前の別の PDF を上書きしないように指紋の頭を付ける */
+export function pdfFileName(them, m, sha) {
+  const d = new Date(m.at);
+  const day = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+  const base = String(m.fileName || '').replace(/\.pdf$/i, '').replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').trim().slice(0, 80);
+  return `${safeName(them)}/${day}_${base ? base + '_' : ''}${String(sha).slice(0, 8)}.pdf`;
 }
 
 /** 保存先のフォルダの中での場所（相手の名前/日時_指紋.拡張子）。sha＝写真の中身の指紋 */
@@ -87,6 +96,9 @@ export const sameLook = (a, b) => lookDistance(a, b) <= SAME_LOOK;
 /** 大きい写真（元の写真）の住所。管理画面の住所の末尾 /preview は縮小版 */
 export const largeUrl = (url) => String(url).replace(/\/preview$/, '');
 
+/** 保存する PDF（LINE で届いたファイルのうち、名前が .pdf で中身の住所がある物）。PDF は中身の指紋だけで見分ける */
+export const isPdf = (m) => m.kind === 'file' && !!m.fileUrl && /\.pdf$/i.test(m.fileName || '');
+
 /**
  * 写真を保存する（同じ写真は絶対に二重に保存しない・大きい写真だけを保存する）。部品は渡してもらう（試験で差し替えられるように）
  *   folder＝保存先（list と write・lib/folder.js）／get＝写真を取り出す（fetch）／print＝見た目の印／progress＝進み具合（何枚目・全部で何枚）
@@ -100,27 +112,29 @@ export async function savePhotos(c, { folder, get, print = lookPrint, progress =
   for (const f of await folder.list()) {
     try {
       shas.add(await fingerprint(await f.blob.arrayBuffer()));
-      seen.push(await print(f.blob));
+      if (!/\.pdf$/i.test(f.name)) seen.push(await print(f.blob));
     } catch { /* 写真として読めないファイルは比べる相手にしない */ }
   }
-  const all = (c.messages || []).filter((m) => m.kind === 'image' && m.imageUrl);
+  const all = (c.messages || []).filter((m) => (m.kind === 'image' && m.imageUrl) || isPdf(m));
   let ok = 0, same = 0, ng = 0;
   for (const [i, m] of all.entries()) {
     progress(i + 1, all.length);
+    const pdf = isPdf(m);
+    const url = pdf ? m.fileUrl : largeUrl(m.imageUrl);
     let sha = '', look = '', blob = null;
     try {
-      const res = await get(largeUrl(m.imageUrl), { credentials: 'include' });
+      const res = await get(url, { credentials: 'include' });
       if (!res.ok) throw new Error(String(res.status));
       blob = await res.blob();
       sha = await fingerprint(await blob.arrayBuffer());
-      look = await print(blob);
+      if (!pdf) look = await print(blob);
     } catch { ng++; continue; }
-    if (shas.has(sha) || seen.some((x) => sameLook(look, x))) { same++; continue; }
+    if (shas.has(sha) || (!pdf && seen.some((x) => sameLook(look, x)))) { same++; continue; }
     try {
-      await folder.write(photoFileName(c.them, m, sha, blob.type), blob);
+      await folder.write(pdf ? pdfFileName(c.them, m, sha) : photoFileName(c.them, m, sha, blob.type), blob);
     } catch { ng++; continue; }
     shas.add(sha);
-    seen.push(look);
+    if (!pdf) seen.push(look);
     ok++;
   }
   return { all: all.length, ok, skipped: same, ng };

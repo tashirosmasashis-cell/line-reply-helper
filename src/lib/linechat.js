@@ -19,6 +19,11 @@ export function imageUrl(botId, hash) {
   return `https://chat-content.line.biz/bot/${botId}/${encodeURIComponent(hash).replace(/%3D/g, '=')}/preview`;
 }
 
+/** ファイル（PDF など）の中身の住所 */
+export function fileUrl(botId, hash) {
+  return `https://chat-content.line.biz/bot/${botId}/${encodeURIComponent(hash).replace(/%3D/g, '=')}`;
+}
+
 /** 内部の口のイベントを、この道具のメッセージの形にする */
 export function toMessages(events, { botId, them, us }) {
   const out = [];
@@ -42,7 +47,12 @@ export function toMessages(events, { botId, them, us }) {
     if (side === 'us' && !e.bizId && !e.sendId) m.auto = true;
     const hash = e.message.contentHash || e.message.contentProvider?.contentHash;
     if (kind === 'image' && hash && !e.message.expired) m.imageUrl = imageUrl(botId, hash);
-    if (kind === 'file' && e.message.fileName) m.text = e.message.fileName;
+    // ファイル（PDF など）も写真と同じく contentHash の住所で中身が取れる（2026-11-08 本物の PDF で確かめた・末尾に /preview は付けない）
+    if (kind === 'file') {
+      m.fileName = String(e.message.fileName || '');
+      if (m.fileName) m.text = m.fileName;
+      if (hash && !e.message.expired) m.fileUrl = fileUrl(botId, hash);
+    }
     out.push(m);
   }
   return out;
