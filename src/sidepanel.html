@@ -22,6 +22,14 @@
       <textarea id="memo" rows="2" placeholder="例：母＝フランクに、敬語なし／お客さま＝丁寧な敬語、絵文字は1つまで"></textarea>
       <p class="hint">この人にだけ使う話し方です。設定の「あなたの立場・口調」より優先します。このパソコンの中だけに置きます。</p>
     </details>
+    <label class="label" for="range">読む期間</label>
+    <select id="range">
+      <option value="all">全部（最新 100 件）</option>
+      <option value="today">今日の分</option>
+      <option value="3d">ここ3日</option>
+      <option value="7d">ここ1週間</option>
+    </select>
+    <p class="hint">返信の案・コピー・写真の保存・下の一覧が、この期間の分だけになります。このパソコンに覚えます。</p>
     <div class="row">
       <button class="btn btn--main" id="think" type="button">返信を考える</button>
       <button class="btn" id="copy" type="button">AI に貼る形でコピー</button>

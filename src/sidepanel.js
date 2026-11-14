@@ -1,5 +1,5 @@
 // 横の窓：会話を読む → 頼み方を作る → ①その場で AI に考えてもらう ②コピーして貼る → 入力欄に入れる
-import { tidy, unanswered, unreadOnly } from './lib/thread.js';
+import { tidy, unanswered, unreadOnly, withinRange, rangeStart, RANGES, RANGE_MAX } from './lib/thread.js';
 import { buildPrompt } from './lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from './lib/parse.js';
 import { ask, PROVIDERS, AiError } from './lib/providers.js';
@@ -42,6 +42,17 @@ async function toPage(msg) {
 
 function say(text, tone = '') { $('status').textContent = text; $('status').dataset.tone = tone; }
 
+// ---------- 読む期間（全部・今日の分・ここ3日・ここ1週間＝2026-11-14 原さん）。選びはこのパソコンに覚える
+const range = () => $('range').value || 'all';
+chrome.storage.local.get('replyRange').then(({ replyRange }) => { if (replyRange && RANGES[replyRange]) $('range').value = replyRange; }).catch(() => {});
+$('range').addEventListener('change', async () => {
+  await chrome.storage.local.set({ replyRange: range() }).catch(() => {});
+  if (busy) return;
+  last = null; $('result').hidden = true;
+  await load();
+  drawWaiting();
+});
+
 async function load(target = pickedId) {
   const version = ++loadVersion;
   const previous = convo;
@@ -51,14 +62,17 @@ async function load(target = pickedId) {
   tabId = tab?.id;
   if (!tab?.url?.startsWith('https://chat.line.biz/')) { convo = null; say('LINE 公式アカウントの管理画面（chat.line.biz）で使います。', 'warn'); return false; }
   // 一覧から選んだ人がいれば、その会話を**開かずに**読む（相手に既読は付かない）
-  const r = await toPage({ type: 'read', chatId: target || undefined });
+  const from = rangeStart(range());
+  const r = await toPage({ type: 'read', chatId: target || undefined, since: from || undefined });
   if (version !== loadVersion) return false;
   if (!r?.ok) { convo = null; say(r?.error || '会話を読めませんでした（管理画面が変わった可能性があります）。', 'error'); return false; }
   if (r.convo.isGroup) { convo = null; say('いまは1対1の会話だけに対応しています。', 'warn'); return false; }
   const s = await settings();
   if (version !== loadVersion) return false;
-  convo = { ...r.convo, messages: tidy(r.convo.messages) };
+  // 期間を選んだら、その期間の分だけ（全部のときは今までどおり最新 100 件）
+  convo = { ...r.convo, messages: from === null ? tidy(r.convo.messages) : tidy(withinRange(r.convo.messages, range()), RANGE_MAX) };
   convo.unreadSelection = unreadOnly(r.convo.messages, r.convo.unread, r.convo.unreadComplete === true);
+  if (convo.unreadSelection.ok) convo.unreadSelection.messages = withinRange(convo.unreadSelection.messages, range());
   if (previous && previous.chatKey !== convo.chatKey) {
     last = null; resultTarget = null;
     $('result').hidden = true;
@@ -66,7 +80,8 @@ async function load(target = pickedId) {
   }
   const waiting = unanswered(convo.messages);
   $('who').textContent = convo.opened ? `${convo.them} さんとの会話を読みました` : `${convo.them} さんとの会話を、開かずに読みました（既読は付いていません）`;
-  $('sub').textContent = waiting.length ? `まだ返していないメッセージ ${waiting.length} 件（最新 ${convo.messages.length} 件を読みました）` : `最後に送ったのはこちらです（最新 ${convo.messages.length} 件を読みました）`;
+  const span = from === null ? `最新 ${convo.messages.length} 件` : `${RANGES[range()]}の ${convo.messages.length} 件`;
+  $('sub').textContent = !convo.messages.length ? `${RANGES[range()]}のやりとりはありません（読む期間を広げてください）` : waiting.length ? `まだ返していないメッセージ ${waiting.length} 件（${span}を読みました）` : `最後に送ったのはこちらです（${span}を読みました）`;
   // 同じ相手を読み直しても、いま編集中の話し方を保存前の内容へ戻さない。
   $('memo').value = previous?.chatKey === convo.chatKey ? editedMemo : s.memos[convo.them] || '';
   $('memoBox').open = !!$('memo').value;   // この人への話し方が決めてあれば、開いて見せる
@@ -115,6 +130,7 @@ async function think(extra = '') {
   let timer = null;
   try {
     if (!(await load(target))) return;
+    if (!convo.messages.length) { say(`${RANGES[range()]}のやりとりがありません。読む期間を広げてください。`, 'warn'); return; }
     await saveMemo(convo.them, $('memo').value);
     const s = await settings();
     if (s.provider === 'none' || !s.keys[s.provider]) {
@@ -189,9 +205,10 @@ async function copyForAi(onlyUnread = false) {
     if (!(await load())) return;
     if (onlyUnread && !convo.unreadSelection.ok) { say(convo.unreadSelection.reason, 'warn'); return; }
     if (onlyUnread && !convo.unreadSelection.messages.length) {
-      say('未読のメッセージはありません。コピーの内容は変えていません。', 'warn');
+      say(range() === 'all' ? '未読のメッセージはありません。コピーの内容は変えていません。' : `${RANGES[range()]}の未読のメッセージはありません。コピーの内容は変えていません。`, 'warn');
       return;
     }
+    if (!onlyUnread && !convo.messages.length) { say(`${RANGES[range()]}のやりとりがありません。読む期間を広げてください。コピーの内容は変えていません。`, 'warn'); return; }
     await saveMemo(convo.them, $('memo').value);
     const text = await prompt('text', '', onlyUnread);
     if (refreshAfterThink) return;
@@ -269,7 +286,8 @@ async function saveNow(c, dir) {
   const whole = await toPage({ type: 'read', chatId: c.chatKey.split('/').pop(), all: true });
   if (!whole?.ok) { say(whole?.error || '会話を読めませんでした。', 'error'); return; }
   saving('保存先の写真を確かめています…');
-  const r = await savePhotos({ them: c.them, messages: whole.convo.messages }, { folder: folderOf(dir), get: (u, o) => fetch(u, o), progress: (n, total) => saving(`保存しています ${n} / ${total}`) });
+  // 読む期間を選んでいれば、その期間に届いた写真・PDF だけを保存する（全部なら一番古い所まで）
+  const r = await savePhotos({ them: c.them, messages: withinRange(whole.convo.messages, range()) }, { folder: folderOf(dir), get: (u, o) => fetch(u, o), progress: (n, total) => saving(`保存しています ${n} / ${total}`) });
   if (r.all && r.skipped === r.all) { say(`写真と PDF の ${r.all} 件は、すべて保存済みです（${where}）。同じ物は二度と保存しません。`, 'ok'); return; }
   say(`写真と PDF を ${r.ok} 件、${where} に保存しました。${r.skipped ? `（保存済みと同じ物 ${r.skipped} 件は飛ばしました）` : ''}${r.ng ? `取り出せなかった写真が ${r.ng} 枚あります。もう一度押してください。` : ''}`, r.ng ? 'warn' : 'ok');
 }
@@ -350,8 +368,12 @@ async function drawWaiting() {
   box.innerHTML = '';
   $('waitingCard').hidden = !r?.ok;
   if (!r?.ok) return;
-  $('waitingNone').hidden = r.list.length > 0;
-  for (const c of r.list.slice(0, 20)) {
+  // 読む期間を選んでいれば、その期間に最後のメッセージが届いた会話だけ
+  const from = rangeStart(range());
+  const list = from === null ? r.list : r.list.filter((c) => new Date(c.at).getTime() >= from);
+  $('waitingNone').hidden = list.length > 0;
+  $('waitingNone').textContent = from === null ? 'いまは、まだ返していない会話はありません。' : `${RANGES[range()]}に届いた、まだ返していない会話はありません。`;
+  for (const c of list.slice(0, 20)) {
     const li = document.createElement('li');
     const b = document.createElement('button');
     b.type = 'button';

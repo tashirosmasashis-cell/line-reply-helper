@@ -1,5 +1,5 @@
 // 自己試験：node test/run.mjs
-import { tidy, unanswered, unreadOnly, format, stamp, redact } from '../src/lib/thread.js';
+import { tidy, unanswered, unreadOnly, format, stamp, redact, withinRange, rangeStart } from '../src/lib/thread.js';
 import { buildPrompt } from '../src/lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from '../src/lib/parse.js';
 import { ask, AiError, PROVIDERS } from '../src/lib/providers.js';
@@ -27,6 +27,19 @@ t('まだ返していない行に★', (f.match(/^★ /gm) || []).length === 9);
 t('スタンプ・写真は言葉にする', f.includes('（スタンプ）') && f.includes('（写真）'));
 t('こちらの担当者名も添える', f.includes('はなまる教室（佐藤）'));
 t('最新100件まで', tidy(Array.from({ length: 150 }, (_, i) => ({ id: String(i), at: new Date(Date.UTC(2026, 9, 1, 0, i)).toISOString(), side: 'them', kind: 'text', text: 'x' + i }))).length === 100);
+
+// ---- 読む期間（今日の分・ここ3日・ここ1週間）
+{
+  const at = (s) => ({ id: s, at: new Date(s).toISOString(), side: 'them', kind: 'text', text: s });
+  const msgs = ['2026-11-07T23:59:00+09:00', '2026-11-08T00:00:00+09:00', '2026-11-12T00:30:00+09:00', '2026-11-13T23:00:00+09:00', '2026-11-14T00:10:00+09:00', '2026-11-14T09:00:00+09:00'].map(at);
+  const now14 = new Date('2026-11-14T10:00:00+09:00');
+  const ids = (range) => withinRange(msgs, range, now14).map((m) => m.text.slice(5, 16));
+  t('今日の分＝日本の今日の0時から', JSON.stringify(ids('today')) === JSON.stringify(['11-14T00:10', '11-14T09:00']), ids('today'));
+  t('ここ3日＝今日を入れて3日（12日の0時から）', ids('3d').length === 4 && ids('3d')[0] === '11-12T00:30', ids('3d'));
+  t('ここ1週間＝今日を入れて7日（8日の0時ちょうどは入る・7日の夜は入らない）', ids('7d').length === 5 && ids('7d')[0] === '11-08T00:00', ids('7d'));
+  t('全部は絞らない', withinRange(msgs, 'all', now14).length === 6 && rangeStart('all') === null);
+  t('日本の深夜（UTC では前の日）でも今日の0時から', rangeStart('today', new Date('2026-11-14T00:30:00+09:00')) === new Date('2026-11-14T00:00:00+09:00').getTime());
+}
 
 // ---- 頼み方
 const now = new Date('2026-10-12T12:00:00+09:00');

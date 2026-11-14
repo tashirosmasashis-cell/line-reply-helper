@@ -1,7 +1,7 @@
 // 架空の管理画面と遅いAIで、相手の切替・連打・話し方の保存を実際の窓のコードで試す。
 import fs from 'node:fs';
 import vm from 'node:vm';
-import { tidy, unanswered, unreadOnly } from '../src/lib/thread.js';
+import { tidy, unanswered, unreadOnly, withinRange, rangeStart, RANGES, RANGE_MAX } from '../src/lib/thread.js';
 import { buildPrompt } from '../src/lib/prompt.js';
 import { parseAnswer, NEEDS_CHECK } from '../src/lib/parse.js';
 
@@ -43,7 +43,7 @@ export async function testPanel(t) {
     location: { search: '' }, URLSearchParams, Date, setTimeout, clearTimeout,
     setInterval: () => 1, clearInterval() {},
     navigator: { clipboard: { writeText: async (text) => { clipboard = text; } } },
-    tidy, unanswered, unreadOnly, buildPrompt, parseAnswer, NEEDS_CHECK,
+    tidy, unanswered, unreadOnly, withinRange, rangeStart, RANGES, RANGE_MAX, buildPrompt, parseAnswer, NEEDS_CHECK,
     PROVIDERS: { gemini: { name: '架空のAI' } }, AiError: Error,
     ask: async (_provider, opts) => {
       asked++; lastPrompt = opts.prompt;
@@ -106,4 +106,14 @@ export async function testPanel(t) {
   const pending = run('load("A")'); await settle();
   read.resolve({ ok: false, error: '会話を読めませんでした' }); await pending;
   t('会話の読み取りに失敗したら、前の相手の状態を使わない', run('convo') === null);
+
+  // 読む期間：今日の分を選ぶと、古いやりとりしか無い相手では AI に頼まず、期間を広げる案内を出す
+  el('range').value = 'today';
+  const n = asked;
+  await run('think()');
+  t('今日の分にやりとりが無ければ AI に頼まない', asked === n && el('status').textContent.includes('今日の分のやりとりがありません'), el('status').textContent);
+  t('読んだ範囲の見出しに期間を出す', el('sub').textContent.includes('今日の分'), el('sub').textContent);
+  el('range').value = 'all';
+  await run('think()');
+  t('全部に戻せば今までどおり頼む', asked === n + 1);
 }

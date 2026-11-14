@@ -7,14 +7,36 @@ export const MAX_MESSAGES = 100; // AI に渡すのは最新のこれだけ（�
 
 const KIND_LABEL = { unsent: '（送信を取り消しました）', image: '（写真）', sticker: '（スタンプ）', file: '（ファイル）', audio: '（音声）', video: '（動画）', other: '（そのほかのメッセージ）' };
 
-/** 時刻順に並べ、空の物を外し、最新 MAX_MESSAGES 件にする */
-export function tidy(messages) {
+export const RANGE_MAX = 500;    // 期間を選んだときは、その期間の分を全部（多すぎるときだけ最新のこれだけ）
+
+/** 時刻順に並べ、空の物を外し、最新 max 件にする */
+export function tidy(messages, max = MAX_MESSAGES) {
   return messages
     .filter((m) => m && (m.side === 'them' || m.side === 'us'))
     .filter((m) => m.kind !== 'text' || (m.text && m.text.trim()))
     .slice()
     .sort((a, b) => String(a.at).localeCompare(String(b.at)))
-    .slice(-MAX_MESSAGES);
+    .slice(-max);
+}
+
+/**
+ * 読む会話の期間（2026-11-14 原さん「ここ３日とか一週間とか今日の分みたいなのをわたせるようにしたい」
+ * 「最近１週間とか３日、今日とかだけの内容をとる」）。AI に渡す・コピー・写真の保存・まだ返していない会話の一覧に効く。
+ * range＝'all'（全部）／'today'（今日の分＝日本の暦で今日の0時から）／'3d'（今日を入れて3日）／'7d'（今日を入れて7日）。
+ */
+export const RANGES = { all: '全部', today: '今日の分', '3d': 'ここ3日', '7d': 'ここ1週間' };
+const JST = 9 * 3600_000;
+/** 期間の始まり（ミリ秒）。全部なら null */
+export function rangeStart(range = 'all', now = new Date()) {
+  const days = { today: 1, '3d': 3, '7d': 7 }[range];
+  if (!days) return null;
+  const midnight = Math.floor((now.getTime() + JST) / 86_400_000) * 86_400_000 - JST;   // 日本の今日の0時
+  return midnight - (days - 1) * 86_400_000;
+}
+export function withinRange(messages, range = 'all', now = new Date()) {
+  const from = rangeStart(range, now);
+  if (from === null) return messages;
+  return messages.filter((m) => Number.isFinite(new Date(m.at).getTime()) && new Date(m.at).getTime() >= from);
 }
 
 /** まだ返していない分＝こちら側の誰かの最後の返信より後の、相手の発言（取り消されたものは数えない） */
