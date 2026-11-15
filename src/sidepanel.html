@@ -8,7 +8,7 @@
 </head>
 <body class="panel">
   <header class="top">
-    <p class="who" id="who">会話を開いて「返信を考える」を押してください</p>
+    <p class="who" id="who">会話を開いて「返信」を押してください</p>
     <p class="sub" id="sub"></p>
   </header>
 
@@ -22,18 +22,16 @@
       <textarea id="memo" rows="2" placeholder="例：母＝フランクに、敬語なし／お客さま＝丁寧な敬語、絵文字は1つまで"></textarea>
       <p class="hint">この人にだけ使う話し方です。設定の「あなたの立場・口調」より優先します。このパソコンの中だけに置きます。</p>
     </details>
-    <label class="label" for="range">読む期間</label>
-    <select id="range">
-      <option value="all">全部（最新 100 件）</option>
-      <option value="today">今日の分</option>
-      <option value="3d">ここ3日</option>
-      <option value="7d">ここ1週間</option>
-    </select>
-    <p class="hint">返信の案・コピー・写真の保存・下の一覧が、この期間の分だけになります。このパソコンに覚えます。</p>
+    <input type="hidden" id="range" value="all" />
     <div class="row">
-      <button class="btn btn--main" id="think" type="button">返信を考える</button>
-      <button class="btn" id="copy" type="button">AI に貼る形でコピー</button>
-      <button class="btn" id="copyUnread" type="button">未読だけコピー（AIに貼る）</button>
+      <button class="btn btn--main" id="think" type="button">返信</button>
+    </div>
+    <div class="row" id="copyBtns">
+      <button class="btn" type="button" data-copy-range="all">全部</button>
+      <button class="btn" type="button" data-copy-range="7d">1週間</button>
+      <button class="btn" type="button" data-copy-range="3d">3日</button>
+      <button class="btn" type="button" data-copy-range="today">今日</button>
+      <button class="btn" type="button" data-copy-unread>未読</button>
     </div>
     <p class="hint">「未読だけ」はLINEでまだ読んでいない相手のメッセージだけです。会話を開くと既読になるため、下の一覧から選んでコピーしてください。写真の中身はコピーに含まれません。</p>
     <p class="hint" id="aiNote"></p>
@@ -52,7 +50,7 @@
       <textarea id="best" rows="8"></textarea>
       <p class="check" id="bestCheck" hidden></p>
       <div class="row">
-        <button class="btn btn--main" data-insert="best" type="button">入力欄に入れる</button>
+        <button class="btn btn--main" data-insert="best" type="button">入れる</button>
         <button class="btn" data-copy="best" type="button">コピー</button>
       </div>
     </div>
@@ -78,7 +76,7 @@
 
   <section class="card" id="photos" hidden>
     <p class="hint" id="photoNote"></p>
-    <button class="btn" id="savePhotos" type="button">写真・PDFを保存</button>
+    <button class="btn" id="savePhotos" type="button">保存</button>
   </section>
 
   <footer class="foot">

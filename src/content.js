@@ -15,7 +15,7 @@
   const btn = document.createElement('button');
   btn.className = 'lrh-fab';
   btn.type = 'button';
-  btn.innerHTML = '<span class="lrh-fab__dot"></span>返信を考える';
+  btn.innerHTML = '<span class="lrh-fab__dot"></span>返信';
   btn.addEventListener('click', () => chrome.runtime.sendMessage({ type: 'open-panel' }));
   const observer = new MutationObserver(() => { place(); if (alive()) watchChat(); });
   // 置き場所：会話の見出しの右の列（2026-10 の調査で見た作り＝#content-secondary .sub-header の中の

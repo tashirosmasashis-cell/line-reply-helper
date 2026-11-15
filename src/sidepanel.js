@@ -43,15 +43,14 @@ async function toPage(msg) {
 function say(text, tone = '') { $('status').textContent = text; $('status').dataset.tone = tone; }
 
 // ---------- 読む期間（全部・今日の分・ここ3日・ここ1週間＝2026-11-14 原さん）。選びはこのパソコンに覚える
+//   2026-11-15 原さん「なんで読む期間とか勝手に作るんだよ　全部読む １週間 3日 今日 未読だけコピー」＝別の欄は作らず、
+//   コピーのボタンを「全部読む・1週間・3日・今日・未読だけコピー」の5つにする。押した分で読んでコピーし、済んだら全部に戻す。
 const range = () => $('range').value || 'all';
-chrome.storage.local.get('replyRange').then(({ replyRange }) => { if (replyRange && RANGES[replyRange]) $('range').value = replyRange; }).catch(() => {});
-$('range').addEventListener('change', async () => {
-  await chrome.storage.local.set({ replyRange: range() }).catch(() => {});
-  if (busy) return;
-  last = null; $('result').hidden = true;
-  await load();
-  drawWaiting();
-});
+async function copyIn(r, onlyUnread) {
+  if (busy || !RANGES[r]) return;
+  $('range').value = r;
+  try { await copyForAi(onlyUnread); } finally { $('range').value = 'all'; }
+}
 
 async function load(target = pickedId) {
   const version = ++loadVersion;
@@ -189,7 +188,7 @@ function show(a) {
   a.alternatives.forEach((alt, i) => {
     const card = document.createElement('div');
     card.className = 'card';
-    card.innerHTML = `<h2 class="h"></h2><textarea rows="5" id="alt${i}"></textarea><p class="check" hidden></p><div class="row"><button class="btn btn--main" type="button" data-insert="alt${i}">入力欄に入れる</button><button class="btn" type="button" data-copy="alt${i}">コピー</button></div>`;
+    card.innerHTML = `<h2 class="h"></h2><textarea rows="5" id="alt${i}"></textarea><p class="check" hidden></p><div class="row"><button class="btn btn--main" type="button" data-insert="alt${i}">入れる</button><button class="btn" type="button" data-copy="alt${i}">コピー</button></div>`;
     card.querySelector('.h').textContent = alt.label;
     card.querySelector('textarea').value = alt.text;
     markChecks(alt.text, card.querySelector('.check'));
@@ -252,8 +251,12 @@ document.addEventListener('click', async (e) => {
 $('think').addEventListener('click', () => think());
 $('waitingReload').addEventListener('click', () => drawWaiting());
 $('redo').addEventListener('click', () => think($('refine').value));
-$('copy').addEventListener('click', () => copyForAi().catch((e) => say('コピーできませんでした：' + e.message, 'error')));
-$('copyUnread').addEventListener('click', () => copyForAi(true).catch((e) => say('コピーできませんでした：' + e.message, 'error')));
+$('copyBtns').addEventListener('click', (e) => {
+  const b = e.target.closest?.('button');
+  if (!b) return;
+  const unread = b.hasAttribute('data-copy-unread');
+  copyIn(unread ? 'all' : b.dataset.copyRange, unread).catch((err) => say('コピーできませんでした：' + err.message, 'error'));
+});
 $('best').addEventListener('input', () => markChecks($('best').value, $('bestCheck')));
 // 写真の保存：同じ写真を絶対に二重に保存しない（押すたびに保存先のフォルダを読み、見た目で比べる・lib/photos.js）
 //   ・押している途中の連打も1回（窓が2つ開いていても、保存は1つずつ順に＝navigator.locks）
@@ -273,11 +276,11 @@ $('savePhotos').addEventListener('click', async () => {
     await navigator.locks.request('lrh-save-photos', () => saveNow(convo, dir));
   } catch (e) {
     say('保存できませんでした：' + (e.message || e), 'error');
-  } finally { savingPhotos = false; $('savePhotos').disabled = false; $('savePhotos').textContent = '写真・PDFを保存'; }
+  } finally { savingPhotos = false; $('savePhotos').disabled = false; $('savePhotos').textContent = '保存'; }
 });
 
 // 保存の途中の様子を、押したボタンと案内の両方に出す（終わるまで何も変わらないと、動いているか分からない）
-function saving(text) { $('savePhotos').textContent = text; say(text); }
+function saving(text) { say(text); }   // ボタンの文字は「保存」のまま（ボタンを文にしない・2026-11-15）。途中の様子は案内の欄だけ
 
 async function saveNow(c, dir) {
   const where = `「${dir.name}\\${safeName(c.them)}」`;

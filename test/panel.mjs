@@ -88,7 +88,7 @@ export async function testPanel(t) {
   const before = asked;
   await run('think()');
   await run('copyForAi()');
-  t('考えている間の再生成やコピーを重ねない', asked === before && run('busy') && el('copy').disabled && el('redo').disabled);
+  t('考えている間の再生成やコピーを重ねない', asked === before && run('busy') && el('copyBtns').disabled && el('redo').disabled);
   current = 'B';
   await run(`switchTo(${JSON.stringify(key('B'))})`);
   ai.resolve(JSON.stringify({ points: [], best: '前の相手Aへの返信', alternatives: [] }));
